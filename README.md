@@ -4,22 +4,23 @@ ADES is a research/engineering prototype for **exact** shortest-path queries on 
 
 **Evidence status:** reconstruction/reproducibility phase. Novelty is **not established** and ADES is **not claimed to be universally fastest**.
 
-## Current repository slice
+## Implemented architecture
 
-This first clean slice deliberately prioritizes correctness over speculative optimization:
+- stable edge IDs with forward/reverse adjacency and overflow-safe distances;
+- exact Dijkstra oracle and exact bidirectional Dijkstra cold queries;
+- resident exact SSSP state with selected parent edges;
+- strict-improvement decrease propagation;
+- increase filtering by old tightness;
+- selected-parent affected-subtree discovery and boundary-seeded restricted repair;
+- conservative exact rebuild for tight non-parent increases;
+- read-only discovery before mutation, with rebuild fallback on abort;
+- per-resident EWMA repair/rebuild controller whose repair budget adapts from measured cost;
+- cost-aware source admission using accumulated cold-search work rather than recurrence alone;
+- deterministic regression/adversarial tests and mixed differential testing against fresh Dijkstra.
 
-- stable edge IDs with forward/reverse adjacency;
-- overflow-safe exact Dijkstra oracle;
-- exact bidirectional Dijkstra for cold point-to-point queries;
-- cold → probation → resident source lifecycle;
-- conservative update filtering using shortest-path tightness;
-- safe full-SSSP fallback whenever a resident state may be invalidated;
-- deterministic differential/regression tests;
-- DIMACS `.gr.gz` loader and CLI.
+The adaptive controller affects performance policy only. Exactness is protected by filtering rules, local-repair invariants, and full-SSSP fallback.
 
-The handoff's local affected-region repair and self-calibrating repair/rebuild controller are the next implementation slice. They are not silently represented by the conservative fallback.
-
-## Build
+## Build and test
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -29,10 +30,28 @@ ctest --test-dir build --output-on-failure
 
 Requires C++20, CMake, and zlib.
 
-## Dataset
+## NY DIMACS reproducibility
 
-The development benchmark uses the 9th DIMACS Shortest Paths NY road graphs (`USA-road-d.NY.gr.gz`, `USA-road-t.NY.gr.gz`) and coordinates. Large datasets are intentionally not committed.
+The benchmark corpus is the 9th DIMACS Shortest Paths NY road network:
+
+- `USA-road-d.NY.gr.gz`
+- `USA-road-t.NY.gr.gz`
+- `USA-road-d.NY.co.gz`
+
+The repository stores their SHA-256 manifest, not duplicate binary history. Run:
+
+```bash
+bash tools/fetch_ny_dimacs.sh
+```
+
+The script downloads the canonical Challenge 9 files and rejects any checksum mismatch. The dedicated `NY DIMACS validation` GitHub Actions workflow performs the same acquisition/verification before build, tests, and distance/time smoke queries.
+
+## Current evidence boundary
+
+Local reconstruction currently passes the deterministic mixed differential suite (12 seeds × 12,000 operations) after dynamic repair, adaptive repair control, and cost-aware admission were enabled. The supplied NY distance and travel-time graphs both load as 264,346 vertices / 733,846 arcs; the current smoke pair 1→1000 returns 28,939 and 61,253 respectively.
+
+These are engineering-validation results, not novelty or asymptotic-superiority claims. Full workload benchmarking, controller ablations, memory accounting, complexity documentation, and fresh literature preflight remain required.
 
 ## Research discipline
 
-Refute first. Measure second. Prove where possible. Claim only what survives.
+**Refute first. Measure second. Prove where possible. Claim only what survives.**
