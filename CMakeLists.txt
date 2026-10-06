@@ -14,3 +14,6 @@ enable_testing()
 add_executable(ades_tests tests/test_main.cpp)
 target_link_libraries(ades_tests PRIVATE ades)
 add_test(NAME ades_tests COMMAND ades_tests)
+
+add_executable(ades_bench benchmarks/runner.cpp)
+target_link_libraries(ades_bench PRIVATE ades)
