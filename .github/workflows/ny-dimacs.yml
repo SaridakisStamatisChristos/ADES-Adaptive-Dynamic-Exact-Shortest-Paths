@@ -1,5 +1,14 @@
 name: NY DIMACS validation
 on:
+  push:
+    paths:
+      - 'benchmarks/data/**'
+      - 'benchmarks/ny_smoke.sh'
+      - 'tools/verify_ny_dimacs.sh'
+      - 'src/**'
+      - 'include/**'
+      - 'CMakeLists.txt'
+  pull_request:
   workflow_dispatch:
   schedule:
     - cron: '17 3 * * 0'
@@ -9,15 +18,24 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch and verify NY DIMACS corpus
-        run: bash tools/fetch_ny_dimacs.sh
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Verify committed NY corpus
+        run: |
+          if ! bash tools/verify_ny_dimacs.sh benchmarks/data; then
+            echo "Committed corpus unavailable; attempting canonical fallback."
+            bash tools/fetch_ny_dimacs.sh benchmarks/data
+            bash tools/verify_ny_dimacs.sh benchmarks/data
+          fi
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - name: Build
         run: cmake --build build -j2
       - name: Unit and differential tests
         run: ctest --test-dir build --output-on-failure
-      - name: Distance smoke
-        run: ./build/ades_cli benchmarks/data/ny/USA-road-d.NY.gr.gz 1 1000
-      - name: Travel-time smoke
-        run: ./build/ades_cli benchmarks/data/ny/USA-road-t.NY.gr.gz 1 1000
+      - name: Assert pinned NY smoke distances
+        run: bash benchmarks/ny_smoke.sh ./build/ades_cli benchmarks/data
+      - name: B0-B4 NY correctness gate
+        run: |
+          ./build/ades_bench benchmarks/data/USA-road-d.NY.gr.gz 40 7 1
+          ./build/ades_bench benchmarks/data/USA-road-t.NY.gr.gz 40 7 1
