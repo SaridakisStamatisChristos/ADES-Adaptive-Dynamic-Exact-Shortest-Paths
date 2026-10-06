@@ -28,3 +28,7 @@ bash benchmarks/ny_smoke.sh ./build/ades_cli benchmarks/data
 The dataset files may be committed here when redistribution terms permit. Until they are committed, this folder remains the canonical placement path for manually supplied copies. The checksum manifest pins the exact corpus used by ADES.
 
 For convenience, `tools/fetch_ny_dimacs.sh benchmarks/data` can attempt to acquire the canonical corpus automatically. A clone must never silently benchmark a different dataset: checksum verification is mandatory.
+
+## CI validation
+
+Changes under `benchmarks/data/` trigger the NY DIMACS validation workflow, which verifies the pinned corpus, builds and tests ADES, checks the pinned smoke distances, and executes the B0–B4 NY exactness gate.
