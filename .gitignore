@@ -1,0 +1,4 @@
+build/
+*.o
+results/*.json
+!results/.gitkeep
