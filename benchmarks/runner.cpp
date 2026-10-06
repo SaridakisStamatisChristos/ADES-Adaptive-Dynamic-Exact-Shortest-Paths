@@ -38,6 +38,6 @@ int main(int argc,char**argv){
   FreshDijkstra b0{base};FreshBidir b1{base};AlwaysResident b2(base,ResidentMode::FullRebuild),b3(base,ResidentMode::LocalRepair);
   Config cfg;cfg.resident_cap=8;ADES b4(base,cfg);
   for(auto r:{run_engine("B0",b0,ops,ref),run_engine("B1",b1,ops,ref),run_engine("B2",b2,ops,ref),run_engine("B3",b3,ops,ref),run_engine("B4",b4,ops,ref)})
-   std::cout<<r.name<<","<<rep<<","<<seed<<","<<n<<","<<ref.size()<<","<<r.ns<<","<<r.rss_kb<<"\n";
+   std::cout<<r.name<<","<<rep<<","<<seed<<","<<n<<","<<ref.size()<<","<<r.ns<<"\\n";
  }
 }
