@@ -17,3 +17,6 @@ add_test(NAME ades_tests COMMAND ades_tests)
 
 add_executable(ades_bench benchmarks/runner.cpp)
 target_link_libraries(ades_bench PRIVATE ades)
+
+add_executable(ades_catastrophic_cut benchmarks/catastrophic_cut.cpp)
+target_link_libraries(ades_catastrophic_cut PRIVATE ades)
