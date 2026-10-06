@@ -38,10 +38,10 @@ The benchmark corpus is the 9th DIMACS Shortest Paths NY road network:
 - `USA-road-t.NY.gr.gz`
 - `USA-road-d.NY.co.gz`
 
-The repository stores their SHA-256 manifest, not duplicate binary history. Run:
+The canonical repository location for these files is `benchmarks/data/`. A fresh clone can either place the three files there directly or fetch them using the helper. Exact SHA-256 verification is mandatory. Run:
 
 ```bash
-bash tools/fetch_ny_dimacs.sh
+bash tools/fetch_ny_dimacs.sh benchmarks/data\nbash tools/verify_ny_dimacs.sh benchmarks/data
 ```
 
 The script downloads the canonical Challenge 9 files and rejects any checksum mismatch. The dedicated `NY DIMACS validation` GitHub Actions workflow performs the same acquisition/verification before build, tests, and distance/time smoke queries.
