@@ -19,12 +19,12 @@ Distance bidirectional_dijkstra(const Graph& g,std::uint32_t s,std::uint32_t t){
  std::priority_queue<P,std::vector<P>,std::greater<P>> qf,qb;df[s]=0;db[t]=0;qf.push({0,s});qb.push({0,t});Distance best=INF;
  while(!qf.empty()&&!qb.empty()){
   if(sat_add(qf.top().first,qb.top().first)>=best)break;
-  if(qf.top().first<=qb.top().first){auto [du,u]=qf.top();qf.pop();if(du!=df[u])continue;
+  if(qf.top().first<=qb.top().first){auto [du,u]=qf.top();qf.pop();if(du!=df[u])continue;result.settled++;
    if(db[u]<INF)best=std::min(best,sat_add(du,db[u]));
-   for(auto a:g.out(u)){auto nd=sat_add(du,g.edge(a.edge_id).weight);if(nd<df[a.to]){df[a.to]=nd;qf.push({nd,a.to});}if(db[a.to]<INF)best=std::min(best,sat_add(nd,db[a.to]));}
-  }else{auto [du,u]=qb.top();qb.pop();if(du!=db[u])continue;
+   for(auto a:g.out(u)){result.edge_scans++;auto nd=sat_add(du,g.edge(a.edge_id).weight);if(nd<df[a.to]){df[a.to]=nd;qf.push({nd,a.to});}if(db[a.to]<INF)best=std::min(best,sat_add(nd,db[a.to]));}
+  }else{auto [du,u]=qb.top();qb.pop();if(du!=db[u])continue;result.settled++;
    if(df[u]<INF)best=std::min(best,sat_add(du,df[u]));
-   for(auto a:g.in(u)){auto nd=sat_add(du,g.edge(a.edge_id).weight);if(nd<db[a.to]){db[a.to]=nd;qb.push({nd,a.to});}if(df[a.to]<INF)best=std::min(best,sat_add(nd,df[a.to]));}
+   for(auto a:g.in(u)){result.edge_scans++;auto nd=sat_add(du,g.edge(a.edge_id).weight);if(nd<db[a.to]){db[a.to]=nd;qb.push({nd,a.to});}if(df[a.to]<INF)best=std::min(best,sat_add(nd,df[a.to]));}
   }}
  return best;
 }
