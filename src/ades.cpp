@@ -8,13 +8,13 @@ Distance ADES::query(std::uint32_t s,std::uint32_t t){
  return ans;
 }
 void ADES::update(std::uint32_t id,Weight nw){
- auto old=graph_.edge(id); if(old.weight==nw)return;
- graph_.update_weight(id,nw);
+ auto old=graph_.edge(id); if(old.weight==nw)return; graph_.update_weight(id,nw);
  for(auto &kv:residents_){
-   auto &st=kv.second.s; bool old_tight=st.dist[old.from]<INF && sat_add(st.dist[old.from],old.weight)==st.dist[old.to];
-   if(nw>old.weight && !old_tight){stats_.filtered_updates++;continue;}
-   if(nw<old.weight && st.dist[old.from]<INF && sat_add(st.dist[old.from],nw)>=st.dist[old.to]){stats_.filtered_updates++;continue;}
-   st=dijkstra(graph_,st.source);stats_.rebuilds++;
+  auto &st=kv.second.s;
+  auto r=nw<old.weight?repair_decrease(graph_,st,id):repair_increase(graph_,st,id,old,cfg_.repair_budget);
+  if(r==RepairResult::Filtered){stats_.filtered_updates++;continue;}
+  if(r==RepairResult::Repaired){if(nw<old.weight)stats_.decrease_repairs++;else stats_.increase_repairs++;continue;}
+  stats_.repair_aborts++;st=dijkstra(graph_,st.source);stats_.rebuilds++;
  }
 }
 }
