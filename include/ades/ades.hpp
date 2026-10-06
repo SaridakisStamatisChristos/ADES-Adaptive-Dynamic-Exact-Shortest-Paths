@@ -1,9 +1,9 @@
 #pragma once
-#include "ades/shortest_paths.hpp"
+#include "ades/dynamic_repair.hpp"
 #include <unordered_map>
 namespace ades {
-struct Config { std::size_t resident_cap=4; std::uint32_t probation_queries=4; double promotion_ratio=1.05; };
-struct Stats { std::uint64_t cold_queries=0,resident_queries=0,promotions=0,rebuilds=0,filtered_updates=0; };
+struct Config { std::size_t resident_cap=4; std::uint32_t probation_queries=4; double promotion_ratio=1.05; RepairBudget repair_budget{}; };
+struct Stats { std::uint64_t cold_queries=0,resident_queries=0,promotions=0,rebuilds=0,filtered_updates=0,decrease_repairs=0,increase_repairs=0,repair_aborts=0; };
 class ADES {
  Graph graph_; Config cfg_; Stats stats_;
  struct Entry { SSSPState s; std::uint64_t hits=0; };
