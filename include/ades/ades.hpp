@@ -9,7 +9,7 @@ class ADES {
  Graph graph_; Config cfg_; Stats stats_;
  struct Entry { SSSPState s; std::uint64_t hits=0; RepairController controller{}; };
  std::unordered_map<std::uint32_t,Entry> residents_;
- std::unordered_map<std::uint32_t,std::uint32_t> probation_;
+ struct Probation { std::uint32_t queries=0; std::uint64_t edge_scans=0; }; std::unordered_map<std::uint32_t,Probation> probation_;
  void rebuild(std::uint32_t source);
 public:
  explicit ADES(Graph g,Config c={}):graph_(std::move(g)),cfg_(c){}
