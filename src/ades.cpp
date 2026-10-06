@@ -1,5 +1,6 @@
 #include "ades/ades.hpp"
-#include <chrono>\n#include <algorithm>
+#include <algorithm>
+#include <chrono>
 namespace ades {
 using Clock=std::chrono::steady_clock;
 static std::uint64_t ns_since(Clock::time_point t){return std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now()-t).count();}
@@ -11,9 +12,11 @@ void ADES::rebuild(std::uint32_t source){
 }
 Distance ADES::query(std::uint32_t s,std::uint32_t t){
  if(auto it=residents_.find(s);it!=residents_.end()){stats_.resident_queries++;it->second.hits++;return it->second.s.dist.at(t);}
- stats_.cold_queries++;auto ans=bidirectional_dijkstra(graph_,s,t);
- auto&p=probation_[s];if(++p>=cfg_.probation_queries&&residents_.size()<cfg_.resident_cap){rebuild(s);stats_.promotions++;probation_.erase(s);}
- return ans;
+ stats_.cold_queries++;auto cold=bidirectional_dijkstra_profiled(graph_,s,t);
+ auto&p=probation_[s];p.queries++;p.edge_scans+=cold.edge_scans;
+ const double build_work=double(graph_.edge_count());
+ if(p.queries>=cfg_.probation_queries&&double(p.edge_scans)>=cfg_.promotion_ratio*build_work&&residents_.size()<cfg_.resident_cap){rebuild(s);stats_.promotions++;probation_.erase(s);}
+ return cold.distance;
 }
 void ADES::update(std::uint32_t id,Weight nw){
  auto old=graph_.edge(id);if(old.weight==nw)return;graph_.update_weight(id,nw);
