@@ -101,9 +101,21 @@ static void dynamic_parallel_and_zero_weight_updates(){
  a.update(tail,5);assert(a.query(0,3)==7);
 }
 static void differential(){
- for(std::uint64_t seed=0;seed<12;seed++){std::mt19937_64 rng(seed);Graph base(35);for(int i=0;i<220;i++){auto u=rng()%35,v=rng()%35;if(u!=v)base.add_edge(u,v,rng()%21);}
-  ADES a(base,resident_cfg());for(int op=0;op<12000;op++){if(base.edge_count()&&rng()%3==0){auto id=rng()%base.edge_count();auto w=rng()%21;base.update_weight(id,w);a.update(id,w);}
-   else{auto s=rng()%35,t=rng()%35;auto ref=dijkstra(base,s).dist[t];auto got=a.query(s,t);if(ref!=got){std::cerr<<"mismatch seed="<<seed<<" op="<<op<<"\n";std::abort();}}
-  }}
+ for(std::uint64_t seed=0;seed<12;seed++){
+  std::mt19937_64 rng(seed);Graph base(35);
+  for(int i=0;i<220;i++){auto u=rng()%35,v=rng()%35;if(u!=v)base.add_edge(u,v,rng()%21);}
+  ADES subject(base,resident_cfg());
+  for(int op=0;op<12000;op++){
+   if(base.edge_count()&&rng()%3==0){auto id=rng()%base.edge_count();auto w=rng()%21;base.update_weight(id,w);subject.update(id,w);}
+   else{
+    auto s=rng()%35,t=rng()%35;auto expected=dijkstra(base,s).dist[t],got=subject.query(s,t);
+    if(expected!=got){
+     std::ofstream out("ades_failure_seed_"+std::to_string(seed)+".txt");
+     out<<"# deterministic differential failure\nseed "<<seed<<"\nop "<<op<<"\nsource "<<s<<"\ntarget "<<t<<"\nexpected "<<expected<<"\ngot "<<got<<"\n";
+     std::cerr<<"mismatch seed="<<seed<<" op="<<op<<" artifact=ades_failure_seed_"<<seed<<".txt\n";std::abort();
+    }
+   }
+  }
+ }
 }
 int main(){shortest_path_corner_cases();saturating_distance_arithmetic();equal_distance_parent_cycle_prevention();dynamic_parallel_and_zero_weight_updates();repair_work_accounting_is_complete();work_aware_controller_tightens_after_expensive_repairs();weak_candidate_cannot_evict_hot_resident();abort_discovery_is_read_only();repeated_reparent_preserves_spt_links();update_storm_does_not_promote_without_queries();rotating_semihot_sources_do_not_expand_cache();cost_aware_admission();decrease_requires_propagation();parent_increase_repairs_subtree();tight_nonparent_increase_cannot_be_ignored();early_abort_rebuild_is_exact();differential();std::cout<<"ADES repair tests passed\n";}
