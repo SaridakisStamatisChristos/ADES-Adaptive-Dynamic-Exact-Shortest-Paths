@@ -24,8 +24,8 @@ static std::uint32_t pick_source(const std::string&family,const std::vector<std:
  throw std::runtime_error("unknown source family");
 }
 static std::vector<Op> make_trace(const Graph&g,const std::string&family,std::uint64_t seed,std::size_t queries,std::size_t update_every,std::size_t hot_sources,std::size_t epoch){
- std::mt19937_64 r(seed);auto hot=hot_pool(g.vertex_count(),std::max<std::size_t>(1,hot_sources),r);std::vector<Op> ops;ops.reserve(queries+queries/std::max<std::size_t>(1,update_every));
- for(std::size_t q=0;q<queries;q++){if(update_every&&q&&q%update_every==0){auto id=std::uint32_t(r()%g.edge_count());auto old=g.edge(id).weight;Weight nw=(r()&1)?old+1+(r()%31):(old?old-std::min<Weight>(old,r()%std::min<Weight>(old+1,31)):0);ops.push_back({true,id,0,nw});}
+ Graph trace_g=g;std::mt19937_64 r(seed);auto hot=hot_pool(trace_g.vertex_count(),std::max<std::size_t>(1,hot_sources),r);std::vector<Op> ops;ops.reserve(queries+queries/std::max<std::size_t>(1,update_every));
+ for(std::size_t q=0;q<queries;q++){if(update_every&&q&&q%update_every==0){auto id=std::uint32_t(r()%trace_g.edge_count());auto old=trace_g.edge(id).weight;Weight nw=(r()&1)?old+1+(r()%31):(old?old-std::min<Weight>(old,r()%std::min<Weight>(old+1,31)):0);trace_g.update_weight(id,nw);ops.push_back({true,id,0,nw});}
   auto s=pick_source(family,hot,q,std::max<std::size_t>(1,epoch),g.vertex_count(),r);auto t=std::uint32_t(r()%g.vertex_count());ops.push_back({false,s,t,0});}
  return ops;
 }
