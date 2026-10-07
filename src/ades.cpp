@@ -15,13 +15,14 @@ void ADES::rebuild(std::uint32_t source){
  else{Entry e;e.s=std::move(state);e.last_query=query_clock_;e.controller.observe_rebuild(ns);residents_.emplace(source,std::move(e));}
  stats_.rebuilds++;
 }
-bool ADES::admit(std::uint32_t source){
+bool ADES::admit(std::uint32_t source,double candidate_score){
  if(residents_.contains(source))return true;
  if(auto c=cooldown_until_.find(source);c!=cooldown_until_.end()&&query_clock_<c->second){stats_.cooldown_blocks++;return false;}
  if(cfg_.resident_cap==0)return false;
  if(residents_.size()>=cfg_.resident_cap){
   auto victim=residents_.begin();double worst=resident_score(victim->second);
   for(auto it=std::next(residents_.begin());it!=residents_.end();++it){auto score=resident_score(it->second);if(score<worst){worst=score;victim=it;}}
+  if(candidate_score<cfg_.admission_hysteresis*worst){stats_.admission_rejections++;return false;}
   cooldown_until_[victim->first]=query_clock_+cfg_.cooldown_queries;residents_.erase(victim);stats_.evictions++;
  }
  rebuild(source);stats_.promotions++;return true;
@@ -32,7 +33,8 @@ Distance ADES::query(std::uint32_t s,std::uint32_t t){
  stats_.cold_queries++;auto cold=bidirectional_dijkstra_profiled(graph_,s,t);
  auto&p=probation_[s];p.queries++;p.edge_scans+=cold.edge_scans;const double build_work=double(graph_.edge_count());
  if(p.queries>=cfg_.probation_queries&&double(p.edge_scans)>=cfg_.promotion_ratio*build_work){
-  if(admit(s))probation_.erase(s);else{p.queries=0;p.edge_scans=0;}
+  const double candidate_score=double(p.queries);
+  if(admit(s,candidate_score))probation_.erase(s);else{p.queries=0;p.edge_scans=0;}
  }
  return cold.distance;
 }
