@@ -21,7 +21,8 @@ RepairResult repair_increase(const Graph& g,SSSPState& s,std::uint32_t id,const 
   if(discovered_vertices)*discovered_vertices=nodes.size();
   if(nodes.size()>budget.max_discovery_vertices)return RepairResult::RebuildRequired;
   for(auto child=s.first_child[u];child>=0;child=s.next_sibling[(std::uint32_t)child]){
-   if(++tree_work>budget.max_discovery_tree_edges)return RepairResult::RebuildRequired;stack.push_back((std::uint32_t)child);
+   if(++tree_work>budget.max_discovery_tree_edges)return RepairResult::RebuildRequired;
+   stack.push_back((std::uint32_t)child);
   }
  }
  for(auto v:nodes){s.dist[v]=INF;set_parent(g,s,v,-1);}
