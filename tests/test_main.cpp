@@ -2,6 +2,7 @@
 #include <cassert>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <random>
 using namespace ades;
 static Config resident_cfg(){Config c;c.resident_cap=4;c.probation_queries=1;c.promotion_ratio=0.0;c.repair_safety_ceiling={100000,500000};return c;}
@@ -101,6 +102,19 @@ static void dynamic_parallel_and_zero_weight_updates(){
  a.update(slow,1);assert(a.query(0,3)==2);
  a.update(tail,5);assert(a.query(0,3)==7);
 }
+static void epoch_membership_survives_repeated_repairs_and_wrap(){
+ Graph g(6);auto cut=g.add_edge(0,1,1);g.add_edge(1,2,1);g.add_edge(2,3,1);g.add_edge(3,4,1);g.add_edge(4,5,1);g.add_edge(0,5,50);
+ auto s=dijkstra(g,0);
+ for(Weight w: {Weight(2),Weight(3),Weight(4)}){
+  auto old=g.edge(cut);g.update_weight(cut,w);RepairWork work{};
+  assert(repair_increase(g,s,cut,old,{100,100},nullptr,&work)==RepairResult::Repaired);
+  assert(s.dist==dijkstra(g,0).dist);assert(work.discovered_vertices==5);
+ }
+ s.repair_epoch=std::numeric_limits<std::uint32_t>::max();
+ auto old=g.edge(cut);g.update_weight(cut,5);
+ assert(repair_increase(g,s,cut,old,{100,100})==RepairResult::Repaired);
+ assert(s.repair_epoch==1);assert(s.dist==dijkstra(g,0).dist);
+}
 static void differential(){
  for(std::uint64_t seed=0;seed<12;seed++){
   std::mt19937_64 rng(seed);Graph base(35);
@@ -119,4 +133,4 @@ static void differential(){
   }
  }
 }
-int main(){shortest_path_corner_cases();saturating_distance_arithmetic();equal_distance_parent_cycle_prevention();dynamic_parallel_and_zero_weight_updates();repair_work_accounting_is_complete();work_aware_controller_tightens_after_expensive_repairs();weak_candidate_cannot_evict_hot_resident();abort_discovery_is_read_only();repeated_reparent_preserves_spt_links();update_storm_does_not_promote_without_queries();rotating_semihot_sources_do_not_expand_cache();cost_aware_admission();decrease_requires_propagation();parent_increase_repairs_subtree();tight_nonparent_increase_cannot_be_ignored();early_abort_rebuild_is_exact();differential();std::cout<<"ADES repair tests passed\n";}
+int main(){shortest_path_corner_cases();saturating_distance_arithmetic();equal_distance_parent_cycle_prevention();dynamic_parallel_and_zero_weight_updates();epoch_membership_survives_repeated_repairs_and_wrap();repair_work_accounting_is_complete();work_aware_controller_tightens_after_expensive_repairs();weak_candidate_cannot_evict_hot_resident();abort_discovery_is_read_only();repeated_reparent_preserves_spt_links();update_storm_does_not_promote_without_queries();rotating_semihot_sources_do_not_expand_cache();cost_aware_admission();decrease_requires_propagation();parent_increase_repairs_subtree();tight_nonparent_increase_cannot_be_ignored();early_abort_rebuild_is_exact();differential();std::cout<<"ADES repair tests passed\n";}
