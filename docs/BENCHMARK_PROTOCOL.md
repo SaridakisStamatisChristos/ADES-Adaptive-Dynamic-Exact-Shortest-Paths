@@ -23,3 +23,10 @@ Peak RSS must be measured with baselines in separate processes. The combined run
 Seeded mixed synthetic traces; NY DIMACS distance and travel-time road graphs; local/geographic and broad/cross-region patterns; rotating semi-hot sources; update storms; catastrophic selected-SPT cuts; and repair-controller ablations.
 
 Performance claims require repetitions and distribution statistics. Exactness failure invalidates the corresponding performance run.
+
+
+## Repair-controller ablation
+
+Controller evaluation must report, for each selected-parent increase repair, the measured discovery vertices, SPT tree edges, incoming-boundary scans, restricted-subgraph scans, and priority-queue pops. The adaptive policy learns three EWMAs: full rebuild time, repair nanoseconds per aggregate work unit, and aggregate work expansion per discovered vertex. The discovery budget is derived from the predicted total repair cost relative to `gamma * rebuild_cost`, then clamped by independent hard vertex/tree-edge ceilings.
+
+Ablations must compare at least: fixed discovery ceiling, legacy vertex-only calibration, and work-aware calibration. Catastrophic-cut experiments must demonstrate early abort before state mutation; small-cut experiments must demonstrate that profitable repairs are not systematically forced into rebuilds. Controller decisions affect performance only: every abort falls back to exact full Dijkstra.
