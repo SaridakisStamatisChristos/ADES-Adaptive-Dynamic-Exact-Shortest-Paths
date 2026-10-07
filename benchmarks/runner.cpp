@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <random>
+#include <stdexcept>
 #include <string>
 #include <vector>
 using namespace ades;using Clock=std::chrono::steady_clock;
@@ -21,7 +22,7 @@ static std::vector<std::uint32_t> ordered_vertices(const std::vector<Coordinate>
 }
 static std::vector<Op> spatial_trace(const Graph&g,const std::vector<Coordinate>&c,const std::string&kind,std::uint64_t seed,std::size_t n){
  if(c.size()!=g.vertex_count())throw std::runtime_error("coordinate/graph size mismatch");
- auto order=ordered_vertices(c);std::mt19937_64 r(seed);std::vector<Op>x;x.reserve(n);const std::size_t N=order.size();
+ auto order=ordered_vertices(c);std::mt19937_64 r(seed);std::vector<Op>x;x.reserve(n);const std::size_t N=order.size();if(N==0)throw std::runtime_error("empty coordinate corpus");
  const std::size_t band=std::max<std::size_t>(8,N/100),cluster=std::max<std::size_t>(16,N/20);
  for(std::size_t i=0;i<n;i++){
   if(g.edge_count()&&r()%5==0){x.push_back({true,(std::uint32_t)(r()%g.edge_count()),0,r()%100});continue;}
