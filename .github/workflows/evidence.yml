@@ -1,5 +1,8 @@
 name: Definitive NY evidence
 on:
+  push:
+    branches: ["evidence/ny-definitive-2026-10-07"]
+    paths: [".github/workflows/evidence.yml", ".evidence-trigger"]
   workflow_dispatch:
     inputs:
       ops:
