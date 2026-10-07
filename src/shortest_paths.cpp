@@ -4,12 +4,14 @@
 #include <queue>
 namespace ades {
 SSSPState dijkstra(const Graph& g,std::uint32_t s){
- SSSPState r{s,std::vector<Distance>(g.vertex_count(),INF),std::vector<std::int64_t>(g.vertex_count(),-1)};
+ const auto n=g.vertex_count();
+ SSSPState r{s,std::vector<Distance>(n,INF),std::vector<std::int64_t>(n,-1),
+  std::vector<std::int64_t>(n,-1),std::vector<std::int64_t>(n,-1),std::vector<std::int64_t>(n,-1)};
  using P=std::pair<Distance,std::uint32_t>;std::priority_queue<P,std::vector<P>,std::greater<P>> q;
  r.dist[s]=0;q.push({0,s});
  while(!q.empty()){auto [du,u]=q.top();q.pop();if(du!=r.dist[u])continue;
   for(auto a:g.out(u)){auto&e=g.edge(a.edge_id);auto nd=sat_add(du,e.weight);
-   if(nd<r.dist[a.to]){r.dist[a.to]=nd;r.parent_edge[a.to]=a.edge_id;q.push({nd,a.to});}
+   if(nd<r.dist[a.to]){r.dist[a.to]=nd;set_parent(g,r,a.to,a.edge_id);q.push({nd,a.to});}
   }}
  return r;
 }
