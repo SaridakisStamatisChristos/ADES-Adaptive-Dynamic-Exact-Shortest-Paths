@@ -32,8 +32,11 @@ int main(int argc,char**argv){
  if(reachable.empty()){std::cerr<<"resident source has no reachable target\n";return 4;}std::uint32_t target=reachable[rng()%reachable.size()];steps.push_back({id,target,nw});}
  auto graph=Graph::load_dimacs_gr_gz(argv[1]);Config cfg;cfg.resident_cap=1;cfg.probation_queries=1;cfg.promotion_ratio=0.0;cfg.repair_safety_ceiling={graph.vertex_count(),graph.edge_count()};
  if(policy=="fixed")cfg.repair_policy=RepairPolicy::Fixed;else if(policy=="vertex")cfg.repair_policy=RepairPolicy::VertexOnly;else if(policy=="work")cfg.repair_policy=RepairPolicy::WorkAware;else return 2;
- ADES a(graph,cfg);auto ref=dijkstra(graph,source);if(a.query(source,source)!=0||!a.resident(source)){std::cerr<<"failed to establish resident source\n";return 5;}
- auto start=Clock::now();for(auto&s:steps){graph.update_weight(s.edge,s.weight);a.update(s.edge,s.weight);auto expected=dijkstra(graph,source).dist[s.target],got=a.query(source,s.target);if(got!=expected){std::cerr<<"exactness failure\n";return 3;}}
- auto ns=std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now()-start).count();auto st=a.stats();
+ ADES a(graph,cfg);if(a.query(source,source)!=0||!a.resident(source)){std::cerr<<"failed to establish resident source\n";return 5;}
+ std::vector<Distance> expected;expected.reserve(steps.size());
+ for(auto&s:steps){graph.update_weight(s.edge,s.weight);expected.push_back(dijkstra(graph,source).dist[s.target]);}
+ std::uint64_t ns=0;
+ for(std::size_t i=0;i<steps.size();i++){auto&s=steps[i];auto start=Clock::now();a.update(s.edge,s.weight);auto got=a.query(source,s.target);ns+=(std::uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now()-start).count();if(got!=expected[i]){std::cerr<<"exactness failure\n";return 3;}}
+ auto st=a.stats();
  std::cout<<regime<<","<<policy<<","<<seed<<","<<rounds<<","<<source<<","<<ns<<","<<st.rebuilds<<","<<st.increase_repairs<<","<<st.repair_aborts<<","<<st.filtered_updates<<"\n";
 }
