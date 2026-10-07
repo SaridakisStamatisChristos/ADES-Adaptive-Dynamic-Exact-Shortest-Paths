@@ -1,0 +1,71 @@
+name: Definitive NY evidence
+on:
+  workflow_dispatch:
+    inputs:
+      ops:
+        description: Operations per B0-B4 trace
+        required: true
+        default: "200"
+      reps:
+        description: Repetitions per matrix cell
+        required: true
+        default: "5"
+      controller_rounds:
+        description: Targeted controller rounds
+        required: true
+        default: "20"
+permissions:
+  contents: read
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Verify corpus
+        run: bash tools/verify_ny_dimacs.sh benchmarks/data
+      - name: Build Release
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+      - name: Run B0-B4 matrices
+        run: |
+          rm -rf results && mkdir results
+          for graph in benchmarks/data/USA-road-d.NY.gr.gz benchmarks/data/USA-road-t.NY.gr.gz; do
+            metric="$(basename "$graph" | cut -d. -f1-2)"
+            for workload in mixed local cross clustered moving; do
+              before="$(find results -maxdepth 1 -type f -name 'bench-*.csv' | sort)"
+              if [[ "$workload" == mixed ]]; then
+                bash benchmarks/run_matrix.sh "$graph" "${{ inputs.ops }}" 7 "${{ inputs.reps }}" "$workload"
+              else
+                bash benchmarks/run_matrix.sh "$graph" "${{ inputs.ops }}" 7 "${{ inputs.reps }}" "$workload" benchmarks/data/USA-road-d.NY.co.gz
+              fi
+              latest="$(find results -maxdepth 1 -type f -name 'bench-*.csv' | sort | tail -n1)"
+              meta="${latest%.csv}.meta"
+              mv "$latest" "results/${metric}-${workload}.csv"
+              [[ -f "$meta" ]] && mv "$meta" "results/${metric}-${workload}.meta"
+              sleep 1
+            done
+          done
+      - name: Run controller ablations
+        run: |
+          for graph in benchmarks/data/USA-road-d.NY.gr.gz benchmarks/data/USA-road-t.NY.gr.gz; do
+            metric="$(basename "$graph" | cut -d. -f1-2)"
+            bash benchmarks/run_controller_ablation.sh "$graph" "${{ inputs.controller_rounds }}" 7 "${{ inputs.reps }}"
+            latest="$(find results -maxdepth 1 -type f -name 'controller-*.csv' | sort | tail -n1)"
+            mv "$latest" "results/${metric}-controller.csv"
+            sleep 1
+          done
+      - name: Validate and summarize
+        run: python3 benchmarks/summarize_results.py
+      - name: Show summary
+        run: cat results/SUMMARY.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ades-ny-evidence-${{ github.sha }}
+          path: results/
+          if-no-files-found: error
+          retention-days: 90
