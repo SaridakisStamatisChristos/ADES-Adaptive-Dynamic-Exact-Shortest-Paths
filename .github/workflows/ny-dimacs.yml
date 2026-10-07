@@ -42,3 +42,8 @@ jobs:
               ./build/ades_bench "$graph" "$baseline" 40 7 0
             done
           done
+          for workload in local cross clustered moving; do
+            for baseline in B1 B4; do
+              ./build/ades_bench benchmarks/data/USA-road-d.NY.gr.gz "$baseline" 20 7 0 "$workload" benchmarks/data/USA-road-d.NY.co.gz
+            done
+          done
