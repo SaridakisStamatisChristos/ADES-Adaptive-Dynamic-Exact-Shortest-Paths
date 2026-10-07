@@ -30,7 +30,7 @@ jobs:
           set -euo pipefail
           rm -rf results/crossover
           mkdir -p results/crossover
-          bash benchmarks/run_phase_diagram.sh             benchmarks/data/USA-road-d.NY.gr.gz             "${{ inputs.queries }}"             results/crossover/phase.csv
+          bash benchmarks/run_phase_diagram.sh             benchmarks/data/USA-road-d.NY.gr.gz             results/crossover/phase.csv             "${{ inputs.queries }}"
           python3 benchmarks/summarize_phase.py             results/crossover/phase.csv             > results/crossover/SUMMARY.md
           test -s results/crossover/phase.csv
           test -s results/crossover/SUMMARY.md
