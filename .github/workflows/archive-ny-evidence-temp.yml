@@ -1,0 +1,36 @@
+name: Archive NY evidence temporary
+on:
+  push:
+    branches: [evidence/archive-ny-definitive-2026-10-07]
+permissions:
+  actions: read
+  contents: write
+jobs:
+  archive:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: evidence/archive-ny-definitive-2026-10-07
+      - uses: actions/download-artifact@v4
+        with:
+          name: ades-ny-evidence-recovered-b2ef9fffb4ad325f13f57ab53b5702deca99cd7a
+          path: downloaded
+          run-id: 37610905480
+          github-token: ${{ github.token }}
+      - name: Archive exact evidence
+        run: |
+          mkdir -p evidence/ny-2026-10-07
+          find downloaded -maxdepth 1 -type f \( -name '*.csv' -o -name '*.meta' -o -name 'SUMMARY.md' \) -exec cp {} evidence/ny-2026-10-07/ \;
+          test "$(find evidence/ny-2026-10-07 -maxdepth 1 -name '*.csv' | wc -l)" -eq 12
+          test "$(find evidence/ny-2026-10-07 -maxdepth 1 -name '*.meta' | wc -l)" -eq 10
+          (cd evidence/ny-2026-10-07 && sha256sum -c SHA256SUMS)
+      - name: Commit archive
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add evidence/ny-2026-10-07
+          git diff --cached --quiet && exit 0
+          git commit -m "evidence: archive complete NY benchmark package"
+          git push origin HEAD:evidence/archive-ny-definitive-2026-10-07
