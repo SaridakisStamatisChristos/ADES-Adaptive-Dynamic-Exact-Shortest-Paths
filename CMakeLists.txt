@@ -26,3 +26,6 @@ target_link_libraries(ades_trace_replay PRIVATE ades)
 
 add_executable(ades_controller_workload benchmarks/controller_workload.cpp)
 target_link_libraries(ades_controller_workload PRIVATE ades)
+
+add_executable(ades_phase benchmarks/phase_diagram.cpp)
+target_link_libraries(ades_phase PRIVATE ades)
