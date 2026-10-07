@@ -27,10 +27,26 @@ static void update_storm_does_not_promote_without_queries(){
  for(int i=0;i<100;i++)a.update(ids[i%ids.size()],1+(i&1));
  assert(a.resident_count()==0);assert(a.stats().promotions==0);
 }
+static void abort_discovery_is_read_only(){
+ Graph g(7);auto e=g.add_edge(0,1,1);for(std::uint32_t i=1;i<6;i++)g.add_edge(i,i+1,1);
+ auto s=dijkstra(g,0);
+ auto dist=s.dist;auto parent=s.parent_edge;auto first=s.first_child;auto next=s.next_sibling;auto prev=s.prev_sibling;
+ auto old=g.edge(e);g.update_weight(e,20);
+ std::size_t discovered=0;auto r=repair_increase(g,s,e,old,{1,1},&discovered);
+ assert(r==RepairResult::RebuildRequired);assert(discovered>1);
+ assert(s.dist==dist);assert(s.parent_edge==parent);assert(s.first_child==first);assert(s.next_sibling==next);assert(s.prev_sibling==prev);
+}
+static void repeated_reparent_preserves_spt_links(){
+ Graph g(5);auto a=g.add_edge(0,1,5);auto b=g.add_edge(0,2,1);auto c=g.add_edge(2,1,1);g.add_edge(1,3,1);g.add_edge(3,4,1);
+ auto s=dijkstra(g,0);assert(s.parent_edge[1]==(std::int64_t)c);
+ auto oldc=g.edge(c);g.update_weight(c,10);assert(repair_increase(g,s,c,oldc,{100,100})==RepairResult::Repaired);assert(s.parent_edge[1]==(std::int64_t)a);
+ auto olda=g.edge(a);g.update_weight(a,20);assert(repair_increase(g,s,a,olda,{100,100})==RepairResult::Repaired);
+ auto ref=dijkstra(g,0);assert(s.dist==ref.dist);assert(s.dist[4]==13);(void)b;
+}
 static void differential(){
  for(std::uint64_t seed=0;seed<12;seed++){std::mt19937_64 rng(seed);Graph base(35);for(int i=0;i<220;i++){auto u=rng()%35,v=rng()%35;if(u!=v)base.add_edge(u,v,rng()%21);}
   ADES a(base,resident_cfg());for(int op=0;op<12000;op++){if(base.edge_count()&&rng()%3==0){auto id=rng()%base.edge_count();auto w=rng()%21;base.update_weight(id,w);a.update(id,w);}
    else{auto s=rng()%35,t=rng()%35;auto ref=dijkstra(base,s).dist[t];auto got=a.query(s,t);if(ref!=got){std::cerr<<"mismatch seed="<<seed<<" op="<<op<<"\n";std::abort();}}
   }}
 }
-int main(){update_storm_does_not_promote_without_queries();rotating_semihot_sources_do_not_expand_cache();cost_aware_admission();decrease_requires_propagation();parent_increase_repairs_subtree();tight_nonparent_increase_cannot_be_ignored();early_abort_rebuild_is_exact();differential();std::cout<<"ADES repair tests passed\n";}
+int main(){abort_discovery_is_read_only();repeated_reparent_preserves_spt_links();update_storm_does_not_promote_without_queries();rotating_semihot_sources_do_not_expand_cache();cost_aware_admission();decrease_requires_propagation();parent_increase_repairs_subtree();tight_nonparent_increase_cannot_be_ignored();early_abort_rebuild_is_exact();differential();std::cout<<"ADES repair tests passed\n";}

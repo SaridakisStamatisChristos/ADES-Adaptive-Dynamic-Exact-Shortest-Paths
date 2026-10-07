@@ -3,13 +3,29 @@
 #include <functional>
 #include <queue>
 namespace ades {
+void set_parent(const Graph& g,SSSPState& s,std::uint32_t v,std::int64_t edge_id){
+ auto old=s.parent_edge[v];if(old==edge_id)return;
+ if(old>=0){
+  auto p=g.edge((std::uint32_t)old).from;auto prev=s.prev_sibling[v],next=s.next_sibling[v];
+  if(prev>=0)s.next_sibling[(std::uint32_t)prev]=next;else s.first_child[p]=next;
+  if(next>=0)s.prev_sibling[(std::uint32_t)next]=prev;
+ }
+ s.parent_edge[v]=edge_id;s.prev_sibling[v]=-1;s.next_sibling[v]=-1;
+ if(edge_id>=0){
+  auto p=g.edge((std::uint32_t)edge_id).from;auto first=s.first_child[p];s.next_sibling[v]=first;
+  if(first>=0)s.prev_sibling[(std::uint32_t)first]=v;
+  s.first_child[p]=v;
+ }
+}
 SSSPState dijkstra(const Graph& g,std::uint32_t s){
- SSSPState r{s,std::vector<Distance>(g.vertex_count(),INF),std::vector<std::int64_t>(g.vertex_count(),-1)};
+ const auto n=g.vertex_count();
+ SSSPState r{s,std::vector<Distance>(n,INF),std::vector<std::int64_t>(n,-1),
+  std::vector<std::int64_t>(n,-1),std::vector<std::int64_t>(n,-1),std::vector<std::int64_t>(n,-1)};
  using P=std::pair<Distance,std::uint32_t>;std::priority_queue<P,std::vector<P>,std::greater<P>> q;
  r.dist[s]=0;q.push({0,s});
  while(!q.empty()){auto [du,u]=q.top();q.pop();if(du!=r.dist[u])continue;
   for(auto a:g.out(u)){auto&e=g.edge(a.edge_id);auto nd=sat_add(du,e.weight);
-   if(nd<r.dist[a.to]){r.dist[a.to]=nd;r.parent_edge[a.to]=a.edge_id;q.push({nd,a.to});}
+   if(nd<r.dist[a.to]){r.dist[a.to]=nd;set_parent(g,r,a.to,a.edge_id);q.push({nd,a.to});}
   }}
  return r;
 }
