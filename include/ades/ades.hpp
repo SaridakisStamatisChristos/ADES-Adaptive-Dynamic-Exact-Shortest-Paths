@@ -3,10 +3,11 @@
 #include "ades/repair_controller.hpp"
 #include <unordered_map>
 namespace ades {
+enum class RepairPolicy { Fixed, VertexOnly, WorkAware };
 struct Config {
  std::size_t resident_cap=4; std::uint32_t probation_queries=4; double promotion_ratio=1.05;
  std::uint64_t cooldown_queries=32; double eviction_update_penalty=4.0; double admission_hysteresis=1.10;
- RepairBudget repair_safety_ceiling{1u<<20,1u<<22};
+ RepairBudget repair_safety_ceiling{1u<<20,1u<<22}; RepairPolicy repair_policy=RepairPolicy::WorkAware;
 };
 struct Stats {
  std::uint64_t cold_queries=0,resident_queries=0,promotions=0,evictions=0,cooldown_blocks=0,rebuilds=0,

@@ -44,7 +44,12 @@ void ADES::update(std::uint32_t id,Weight nw){
  auto old=graph_.edge(id);if(old.weight==nw)return;graph_.update_weight(id,nw);
  for(auto&kv:residents_){auto&entry=kv.second;entry.update_debt++;auto&st=entry.s;RepairResult r;std::size_t discovered=0;RepairWork work{};auto t=Clock::now();
   if(nw<old.weight)r=repair_decrease(graph_,st,id);
-  else{auto b=entry.controller.budget();r=repair_increase(graph_,st,id,old,{std::min(b.vertices,cfg_.repair_safety_ceiling.max_discovery_vertices),std::min(b.tree_edges,cfg_.repair_safety_ceiling.max_discovery_tree_edges)},&discovered,&work);}
+  else{
+   RepairController::Budget b{cfg_.repair_safety_ceiling.max_discovery_vertices,cfg_.repair_safety_ceiling.max_discovery_tree_edges};
+   if(cfg_.repair_policy==RepairPolicy::VertexOnly)b=entry.controller.vertex_only_budget();
+   else if(cfg_.repair_policy==RepairPolicy::WorkAware)b=entry.controller.budget();
+   r=repair_increase(graph_,st,id,old,{std::min(b.vertices,cfg_.repair_safety_ceiling.max_discovery_vertices),std::min(b.tree_edges,cfg_.repair_safety_ceiling.max_discovery_tree_edges)},&discovered,&work);
+  }
   auto elapsed=ns_since(t);
   if(r==RepairResult::Filtered){stats_.filtered_updates++;continue;}
   if(r==RepairResult::Repaired){if(nw<old.weight)stats_.decrease_repairs++;else{stats_.increase_repairs++;entry.controller.observe_repair(elapsed,work);}continue;}
