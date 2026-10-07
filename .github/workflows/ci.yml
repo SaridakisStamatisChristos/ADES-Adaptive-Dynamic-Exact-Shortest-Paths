@@ -8,6 +8,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Validate benchmark Python
+        run: python3 -m py_compile benchmarks/summarize_results.py
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build build -j2
       - run: ctest --test-dir build --output-on-failure
