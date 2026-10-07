@@ -47,6 +47,14 @@ jobs:
               ./build/ades_bench benchmarks/data/USA-road-d.NY.gr.gz "$baseline" 20 7 0 "$workload" benchmarks/data/USA-road-d.NY.co.gz
             done
           done
+      - name: Shared-oracle spatial regression
+        run: |
+          tmp="$(mktemp)"
+          trap 'rm -f "$tmp"' EXIT
+          ./build/ades_bench benchmarks/data/USA-road-t.NY.gr.gz ORACLE 200 7 0 local benchmarks/data/USA-road-d.NY.co.gz work "$tmp" >/dev/null
+          for baseline in B0 B1 B4; do
+            ./build/ades_bench benchmarks/data/USA-road-t.NY.gr.gz "$baseline" 200 7 0 local benchmarks/data/USA-road-d.NY.co.gz work "$tmp"
+          done
       - name: Controller targeted exactness gate
         run: |
           for regime in small catastrophic; do
