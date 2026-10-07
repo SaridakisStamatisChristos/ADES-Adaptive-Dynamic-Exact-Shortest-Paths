@@ -25,7 +25,9 @@ bool ADES::admit(std::uint32_t source,double candidate_score){
   if(candidate_score<cfg_.admission_hysteresis*worst){stats_.admission_rejections++;return false;}
   cooldown_until_[victim->first]=query_clock_+cfg_.cooldown_queries;residents_.erase(victim);stats_.evictions++;
  }
- rebuild(source);stats_.promotions++;return true;
+ rebuild(source);
+ auto& admitted=residents_.at(source);admitted.hits=std::max<std::uint64_t>(1,(std::uint64_t)candidate_score);admitted.last_query=query_clock_;
+ stats_.promotions++;return true;
 }
 Distance ADES::query(std::uint32_t s,std::uint32_t t){
  query_clock_++;
