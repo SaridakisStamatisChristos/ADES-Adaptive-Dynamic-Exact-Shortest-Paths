@@ -69,7 +69,8 @@ int main(int argc,char**argv){
  std::string oracle_file;
  if(workload=="mixed"){if(argc>8)oracle_file=argv[8];}else if(argc>9)oracle_file=argv[9];
  std::vector<Distance> ref;
- if(!oracle_file.empty()&&baseline!="ORACLE"){auto loaded=read_oracle(oracle_file);ops=std::move(loaded.first);ref=std::move(loaded.second);}
+ auto generated_hash=trace_hash(ops);
+ if(!oracle_file.empty()&&baseline!="ORACLE"){auto loaded=read_oracle(oracle_file);ops=std::move(loaded.first);ref=std::move(loaded.second);if(trace_hash(ops)!=generated_hash){std::cerr<<"oracle trace fingerprint mismatch\n";return 6;}}
  else ref=oracle(base,ops);
  auto hash=trace_hash(ops);
  if(baseline=="ORACLE"){if(oracle_file.empty()){std::cerr<<"ORACLE requires oracle_file\n";return 2;}write_oracle(oracle_file,ops,ref);std::cout<<"ORACLE,0,"<<seed<<","<<workload<<",work,"<<hash<<","<<ops.size()<<","<<ref.size()<<",0,0,0,0,0,0,0,0,0\n";return 0;}
