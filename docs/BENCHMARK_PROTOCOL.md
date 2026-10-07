@@ -30,3 +30,14 @@ Performance claims require repetitions and distribution statistics. Exactness fa
 Controller evaluation must report, for each selected-parent increase repair, the measured discovery vertices, SPT tree edges, incoming-boundary scans, restricted-subgraph scans, and priority-queue pops. The work-aware policy learns full rebuild time, repair nanoseconds per aggregate work unit, aggregate work expansion per discovered vertex, and SPT-tree-edge expansion per discovered vertex. The legacy vertex-only ablation learns repair nanoseconds per discovered vertex and ignores the other repair-work dimensions. The discovery budget is derived from the predicted total repair cost relative to `gamma * rebuild_cost`, then clamped by independent hard vertex/tree-edge ceilings.
 
 Ablations must compare at least: `fixed` discovery ceiling, legacy `vertex`-only calibration, and `work`-aware calibration through the same ADES code path. Reports must include cold/resident queries, promotions, rebuilds, filtered updates, decrease/increase repairs, repair aborts, elapsed time, and peak RSS. Random-source traces are not sufficient controller evidence when they produce few resident repairs; controller claims require a resident-hot/update-targeted workload that actually exercises selected-parent increase repair. Catastrophic-cut experiments must demonstrate early abort before state mutation; small-cut experiments must demonstrate that profitable repairs are not systematically forced into rebuilds. Controller decisions affect performance only: every abort falls back to exact full Dijkstra.
+
+
+### Resident-targeted controller workload
+
+`ades_controller_workload` first computes a deterministic update sequence with an independent Dijkstra SPT model, then replays that identical sequence against each controller policy. The benchmark forces one source resident before timing. Every round increases a selected current-SPT parent edge, then issues an exact query from that resident source and checks it against fresh Dijkstra.
+
+- `small`: prefer SPT edges whose descendant subtree is at most max(8, n/1000), exercising profitable local repair.
+- `catastrophic`: prefer SPT edges whose descendant subtree is at least n/4, exercising early repair abandonment/rebuild behavior.
+- If a requested size class is absent, the generator deterministically falls back to a reachable SPT edge and the run must be interpreted from its observed repair/abort counters rather than its regime label alone.
+
+Use `benchmarks/run_controller_ablation.sh` for isolated repeated fixed/vertex/work measurements with per-process RSS.
