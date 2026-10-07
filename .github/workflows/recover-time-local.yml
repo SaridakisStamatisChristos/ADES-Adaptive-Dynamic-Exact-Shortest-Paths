@@ -1,0 +1,36 @@
+name: Recover NY time-local evidence
+on:
+  push:
+    branches:
+      - evidence/recover-time-local-2026-10-07
+permissions:
+  contents: read
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Verify corpus
+        run: bash tools/verify_ny_dimacs.sh benchmarks/data
+      - name: Build Release
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+      - name: Run recovered time-local cell
+        run: |
+          rm -rf results && mkdir results
+          bash benchmarks/run_matrix.sh benchmarks/data/USA-road-t.NY.gr.gz 200 7 5 local benchmarks/data/USA-road-d.NY.co.gz
+          latest="$(find results -maxdepth 1 -type f -name 'bench-*.csv' | sort | tail -n1)"
+          meta="${latest%.csv}.meta"
+          mv "$latest" results/USA-road-t.NY-local.csv
+          [[ -f "$meta" ]] && mv "$meta" results/USA-road-t.NY-local.meta
+      - name: Upload recovered cell
+        uses: actions/upload-artifact@v4
+        with:
+          name: ny-cell-time-local-recovered
+          path: results/*
+          retention-days: 90
