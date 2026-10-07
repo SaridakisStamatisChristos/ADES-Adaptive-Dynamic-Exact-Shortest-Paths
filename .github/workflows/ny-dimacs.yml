@@ -47,3 +47,10 @@ jobs:
               ./build/ades_bench benchmarks/data/USA-road-d.NY.gr.gz "$baseline" 20 7 0 "$workload" benchmarks/data/USA-road-d.NY.co.gz
             done
           done
+      - name: Controller targeted exactness gate
+        run: |
+          for regime in small catastrophic; do
+            for policy in fixed vertex work; do
+              ./build/ades_controller_workload benchmarks/data/USA-road-d.NY.gr.gz "$regime" 3 7 "$policy"
+            done
+          done
