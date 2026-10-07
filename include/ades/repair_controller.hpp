@@ -24,17 +24,15 @@ public:
  }
  Budget budget()const{
   if(rebuild_ns_<=0.0||repair_ns_per_work_<=0.0)return {4096,16384};
-  // Estimate future total work from discovery size. Successful historical repairs
-  // teach the time per aggregate work unit; the hard ceilings remain independent.
   const double target_work=gamma_*rebuild_ns_/repair_ns_per_work_;
-  const double discovery_units_per_vertex=1.0+std::max(0.0,tree_edges_per_vertex_);
-  auto v=std::size_t(std::max(1.0,target_work/discovery_units_per_vertex));
+  auto v=std::size_t(std::max(1.0,target_work/std::max(1.0,work_per_vertex_)));
   v=std::min(v,hard_vertices_);
   auto e=std::size_t(std::max(1.0,double(v)*std::max(1.0,tree_edges_per_vertex_)));
   return {v,std::min(e,hard_tree_edges_)};
  }
  double rebuild_estimate_ns()const{return rebuild_ns_;}
  double repair_work_estimate_ns()const{return repair_ns_per_work_;}
- double work_per_vertex_estimate()const{return work_per_vertex_;}\n double tree_edges_per_vertex_estimate()const{return tree_edges_per_vertex_;}
+ double work_per_vertex_estimate()const{return work_per_vertex_;}
+ double tree_edges_per_vertex_estimate()const{return tree_edges_per_vertex_;}
 };
 }
