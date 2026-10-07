@@ -67,7 +67,7 @@ int main(int argc,char**argv){
  std::size_t n=argc>3?std::strtoull(argv[3],nullptr,10):1000;std::uint64_t seed=argc>4?std::strtoull(argv[4],nullptr,10):7;int rep=argc>5?std::atoi(argv[5]):0;
  std::vector<Op> ops;if(workload=="mixed")ops=mixed_trace(base,seed,n);else{if(argc<8){std::cerr<<"spatial workload requires coordinate file\n";return 2;}auto coords=load_dimacs_co_gz(argv[7],base.vertex_count());ops=spatial_trace(base,coords,workload,seed,n);}
  std::string oracle_file;
- if(workload=="mixed"){if(argc>8)oracle_file=argv[8];}else if(argc>9)oracle_file=argv[9];
+ if(workload=="mixed"){if(argc>8)oracle_file=argv[8];}else{if(argc>9)oracle_file=argv[9];}
  std::vector<Distance> ref;
  auto generated_hash=trace_hash(ops);
  if(!oracle_file.empty()&&baseline!="ORACLE"){auto loaded=read_oracle(oracle_file);ops=std::move(loaded.first);ref=std::move(loaded.second);if(trace_hash(ops)!=generated_hash){std::cerr<<"oracle trace fingerprint mismatch\n";return 6;}}
