@@ -20,3 +20,6 @@ target_link_libraries(ades_bench PRIVATE ades)
 
 add_executable(ades_catastrophic_cut benchmarks/catastrophic_cut.cpp)
 target_link_libraries(ades_catastrophic_cut PRIVATE ades)
+
+add_executable(ades_trace_replay tests/trace_replay.cpp)
+target_link_libraries(ades_trace_replay PRIVATE ades)
