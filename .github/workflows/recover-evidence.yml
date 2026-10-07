@@ -1,4 +1,5 @@
 name: Recover NY evidence aggregate
+# retrigger: corrected summarizer
 on:
   push:
     branches: [fix/cross-run-evidence-aggregate]
