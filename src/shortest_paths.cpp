@@ -20,7 +20,8 @@ void set_parent(const Graph& g,SSSPState& s,std::uint32_t v,std::int64_t edge_id
 SSSPState dijkstra(const Graph& g,std::uint32_t s){
  const auto n=g.vertex_count();
  SSSPState r{s,std::vector<Distance>(n,INF),std::vector<std::int64_t>(n,-1),
-  std::vector<std::int64_t>(n,-1),std::vector<std::int64_t>(n,-1),std::vector<std::int64_t>(n,-1)};
+  std::vector<std::int64_t>(n,-1),std::vector<std::int64_t>(n,-1),std::vector<std::int64_t>(n,-1),
+  std::vector<std::uint32_t>(n,0),0};
  using P=std::pair<Distance,std::uint32_t>;std::priority_queue<P,std::vector<P>,std::greater<P>> q;
  r.dist[s]=0;q.push({0,s});
  while(!q.empty()){auto [du,u]=q.top();q.pop();if(du!=r.dist[u])continue;

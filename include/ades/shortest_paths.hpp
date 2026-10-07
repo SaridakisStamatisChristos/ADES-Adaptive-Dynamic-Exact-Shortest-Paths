@@ -7,6 +7,8 @@ struct SSSPState {
  std::vector<Distance> dist;
  std::vector<std::int64_t> parent_edge;
  std::vector<std::int64_t> first_child, next_sibling, prev_sibling;
+ std::vector<std::uint32_t> repair_mark;
+ std::uint32_t repair_epoch=0;
 };
 struct BidirectionalResult { Distance distance=INF; std::uint64_t edge_scans=0; std::uint64_t settled=0; };
 SSSPState dijkstra(const Graph&,std::uint32_t source);

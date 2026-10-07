@@ -1,5 +1,7 @@
 #include "ades/dynamic_repair.hpp"
+#include <algorithm>
 #include <functional>
+#include <limits>
 #include <queue>
 namespace ades {
 using Q=std::priority_queue<std::pair<Distance,std::uint32_t>,std::vector<std::pair<Distance,std::uint32_t>>,std::greater<std::pair<Distance,std::uint32_t>>>;
@@ -15,10 +17,11 @@ RepairResult repair_increase(const Graph& g,SSSPState& s,std::uint32_t id,const 
  if(discovered_vertices)*discovered_vertices=0;if(work)*work={};
  if(s.dist[old.from]>=INF||sat_add(s.dist[old.from],old.weight)!=s.dist[old.to])return RepairResult::Filtered;
  if(s.parent_edge[old.to]!=(std::int64_t)id)return RepairResult::RebuildRequired;
- const auto n=g.vertex_count();
- std::vector<unsigned char> affected(n,0);std::vector<std::uint32_t> stack{old.to},nodes;std::size_t tree_work=0;
+ if(s.repair_mark.size()!=g.vertex_count())s.repair_mark.assign(g.vertex_count(),0);
+ if(s.repair_epoch==std::numeric_limits<std::uint32_t>::max()){std::fill(s.repair_mark.begin(),s.repair_mark.end(),0);s.repair_epoch=1;}else ++s.repair_epoch;
+ const auto epoch=s.repair_epoch;std::vector<std::uint32_t> stack{old.to},nodes;std::size_t tree_work=0;
  while(!stack.empty()){
-  auto u=stack.back();stack.pop_back();if(affected[u])continue;affected[u]=1;nodes.push_back(u);
+  auto u=stack.back();stack.pop_back();if(s.repair_mark[u]==epoch)continue;s.repair_mark[u]=epoch;nodes.push_back(u);
   if(discovered_vertices)*discovered_vertices=nodes.size();if(work)work->discovered_vertices=nodes.size();
   if(nodes.size()>budget.max_discovery_vertices)return RepairResult::RebuildRequired;
   for(auto child=s.first_child[u];child>=0;child=s.next_sibling[(std::uint32_t)child]){
@@ -32,7 +35,7 @@ RepairResult repair_increase(const Graph& g,SSSPState& s,std::uint32_t id,const 
  for(auto v:nodes){
   for(auto a:g.in(v)){
    if(work)work->boundary_scans++;
-   if(!affected[a.to]&&s.dist[a.to]<INF){
+   if(s.repair_mark[a.to]!=epoch&&s.dist[a.to]<INF){
     auto nd=sat_add(s.dist[a.to],g.edge(a.edge_id).weight);
     if(nd<s.dist[v]){s.dist[v]=nd;set_parent(g,s,v,a.edge_id);}
    }
@@ -43,7 +46,7 @@ RepairResult repair_increase(const Graph& g,SSSPState& s,std::uint32_t id,const 
   auto[du,u]=q.top();q.pop();if(work)work->pq_pops++;if(du!=s.dist[u])continue;
   for(auto a:g.out(u)){
    if(work)work->restricted_scans++;
-   if(affected[a.to]){
+   if(s.repair_mark[a.to]==epoch){
     auto nd=sat_add(du,g.edge(a.edge_id).weight);
     if(nd<s.dist[a.to]){s.dist[a.to]=nd;set_parent(g,s,a.to,a.edge_id);q.push({nd,a.to});}
    }
