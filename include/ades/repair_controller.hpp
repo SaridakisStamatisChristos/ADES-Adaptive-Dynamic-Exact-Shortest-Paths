@@ -6,7 +6,7 @@
 namespace ades {
 class RepairController {
  double alpha_=0.20,gamma_=0.90;
- double rebuild_ns_=0.0,repair_ns_per_work_=0.0,work_per_vertex_=5.0,tree_edges_per_vertex_=4.0;
+ double rebuild_ns_=0.0,repair_ns_per_work_=0.0,repair_ns_per_vertex_=0.0,work_per_vertex_=5.0,tree_edges_per_vertex_=4.0;
  std::size_t hard_vertices_=1u<<20,hard_tree_edges_=1u<<22;
  static void ewma(double& x,double v,double a){x=x==0.0?v:(1.0-a)*x+a*v;}
 public:
@@ -17,6 +17,7 @@ public:
  void observe_repair(std::uint64_t ns,const RepairWork& work){
   const auto units=work.total();
   if(units)ewma(repair_ns_per_work_,double(ns)/double(units),alpha_);
+  if(work.discovered_vertices)ewma(repair_ns_per_vertex_,double(ns)/double(work.discovered_vertices),alpha_);
   if(work.discovered_vertices){
    ewma(work_per_vertex_,double(units)/double(work.discovered_vertices),alpha_);
    ewma(tree_edges_per_vertex_,double(work.tree_edges)/double(work.discovered_vertices),alpha_);
@@ -29,6 +30,11 @@ public:
   v=std::min(v,hard_vertices_);
   auto e=std::size_t(std::max(1.0,double(v)*std::max(1.0,tree_edges_per_vertex_)));
   return {v,std::min(e,hard_tree_edges_)};
+ }
+ Budget vertex_only_budget()const{
+  if(rebuild_ns_<=0.0||repair_ns_per_vertex_<=0.0)return {4096,hard_tree_edges_};
+  auto v=std::size_t(std::max(1.0,gamma_*rebuild_ns_/repair_ns_per_vertex_));
+  return {std::min(v,hard_vertices_),hard_tree_edges_};
  }
  double rebuild_estimate_ns()const{return rebuild_ns_;}
  double repair_work_estimate_ns()const{return repair_ns_per_work_;}
