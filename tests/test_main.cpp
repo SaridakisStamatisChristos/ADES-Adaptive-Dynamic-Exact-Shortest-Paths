@@ -29,7 +29,8 @@ static void update_storm_does_not_promote_without_queries(){
 }
 static void abort_discovery_is_read_only(){
  Graph g(7);auto e=g.add_edge(0,1,1);for(std::uint32_t i=1;i<6;i++)g.add_edge(i,i+1,1);
- auto s=dijkstra(g,0);auto dist=s.dist,parent=s.parent_edge,first=s.first_child,next=s.next_sibling,prev=s.prev_sibling;
+ auto s=dijkstra(g,0);
+ auto dist=s.dist;auto parent=s.parent_edge;auto first=s.first_child;auto next=s.next_sibling;auto prev=s.prev_sibling;
  auto old=g.edge(e);g.update_weight(e,20);
  std::size_t discovered=0;auto r=repair_increase(g,s,e,old,{1,1},&discovered);
  assert(r==RepairResult::RebuildRequired);assert(discovered>1);
