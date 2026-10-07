@@ -23,10 +23,10 @@ RepairResult repair_increase(const Graph& g,SSSPState& s,std::uint32_t id,const 
  while(!stack.empty()){
   auto u=stack.back();stack.pop_back();if(s.repair_mark[u]==epoch)continue;s.repair_mark[u]=epoch;nodes.push_back(u);
   if(discovered_vertices)*discovered_vertices=nodes.size();if(work)work->discovered_vertices=nodes.size();
-  if(nodes.size()>budget.max_discovery_vertices)return RepairResult::RebuildRequired;
+  if(nodes.size()>budget.max_discovery_vertices|| (work&&work->total()>budget.max_total_work))return RepairResult::RebuildRequired;
   for(auto child=s.first_child[u];child>=0;child=s.next_sibling[(std::uint32_t)child]){
    ++tree_work;if(work)work->tree_edges++;
-   if(tree_work>budget.max_discovery_tree_edges)return RepairResult::RebuildRequired;
+   if(tree_work>budget.max_discovery_tree_edges|| (work&&work->total()>budget.max_total_work))return RepairResult::RebuildRequired;
    stack.push_back((std::uint32_t)child);
   }
  }
@@ -34,7 +34,7 @@ RepairResult repair_increase(const Graph& g,SSSPState& s,std::uint32_t id,const 
  Q q;
  for(auto v:nodes){
   for(auto a:g.in(v)){
-   if(work)work->boundary_scans++;
+   if(work){work->boundary_scans++;if(work->total()>budget.max_total_work)return RepairResult::RebuildRequired;}
    if(s.repair_mark[a.to]!=epoch&&s.dist[a.to]<INF){
     auto nd=sat_add(s.dist[a.to],g.edge(a.edge_id).weight);
     if(nd<s.dist[v]){s.dist[v]=nd;set_parent(g,s,v,a.edge_id);}
@@ -43,9 +43,9 @@ RepairResult repair_increase(const Graph& g,SSSPState& s,std::uint32_t id,const 
  }
  for(auto v:nodes)if(s.dist[v]<INF)q.push({s.dist[v],v});
  while(!q.empty()){
-  auto[du,u]=q.top();q.pop();if(work)work->pq_pops++;if(du!=s.dist[u])continue;
+  auto[du,u]=q.top();q.pop();if(work){work->pq_pops++;if(work->total()>budget.max_total_work)return RepairResult::RebuildRequired;}if(du!=s.dist[u])continue;
   for(auto a:g.out(u)){
-   if(work)work->restricted_scans++;
+   if(work){work->restricted_scans++;if(work->total()>budget.max_total_work)return RepairResult::RebuildRequired;}
    if(s.repair_mark[a.to]==epoch){
     auto nd=sat_add(du,g.edge(a.edge_id).weight);
     if(nd<s.dist[a.to]){s.dist[a.to]=nd;set_parent(g,s,a.to,a.edge_id);q.push({nd,a.to});}
