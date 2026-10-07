@@ -26,9 +26,10 @@ int main(int argc,char**argv){
  auto base=Graph::load_dimacs_gr_gz(argv[1]);std::string regime=argv[2],policy=argc>5?argv[5]:"work";std::size_t rounds=argc>3?std::strtoull(argv[3],nullptr,10):20;std::uint64_t seed=argc>4?std::strtoull(argv[4],nullptr,10):7;
  if(regime!="small"&&regime!="catastrophic"){std::cerr<<"unknown regime\n";return 2;}std::mt19937_64 rng(seed);
  std::uint32_t source=std::uint32_t(seed%base.vertex_count());auto model=dijkstra(base,source);
- for(std::size_t tries=0;tries<base.vertex_count()&&model.parent_edge[source]<0;tries++){bool any=false;for(auto p:model.parent_edge)if(p>=0){any=true;break;}if(any)break;source=(source+1)%base.vertex_count();model=dijkstra(base,source);}
+ for(std::size_t tries=0;tries<base.vertex_count();tries++){bool any=false;for(auto p:model.parent_edge)if(p>=0){any=true;break;}if(any)break;source=(source+1)%base.vertex_count();model=dijkstra(base,source);}
  std::vector<Step> steps;steps.reserve(rounds);
- for(std::size_t i=0;i<rounds;i++){auto sizes=subtree_sizes(base,model);auto id=pick_edge(base,model,sizes,regime=="catastrophic",rng);auto e=base.edge(id);Weight nw=e.weight+1+(rng()%17);base.update_weight(id,nw);model=dijkstra(base,source);std::uint32_t target=std::uint32_t(rng()%base.vertex_count());steps.push_back({id,target,nw});}
+ for(std::size_t i=0;i<rounds;i++){auto sizes=subtree_sizes(base,model);auto id=pick_edge(base,model,sizes,regime=="catastrophic",rng);auto e=base.edge(id);Weight nw=e.weight+1+(rng()%17);base.update_weight(id,nw);model=dijkstra(base,source);std::vector<std::uint32_t> reachable;reachable.reserve(base.vertex_count());for(std::uint32_t v=0;v<base.vertex_count();v++)if(model.dist[v]<INF)reachable.push_back(v);
+ if(reachable.empty()){std::cerr<<"resident source has no reachable target\n";return 4;}std::uint32_t target=reachable[rng()%reachable.size()];steps.push_back({id,target,nw});}
  auto graph=Graph::load_dimacs_gr_gz(argv[1]);Config cfg;cfg.resident_cap=1;cfg.probation_queries=1;cfg.promotion_ratio=0.0;cfg.repair_safety_ceiling={graph.vertex_count(),graph.edge_count()};
  if(policy=="fixed")cfg.repair_policy=RepairPolicy::Fixed;else if(policy=="vertex")cfg.repair_policy=RepairPolicy::VertexOnly;else if(policy=="work")cfg.repair_policy=RepairPolicy::WorkAware;else return 2;
  ADES a(graph,cfg);auto ref=dijkstra(graph,source);if(a.query(source,source)!=0||!a.resident(source)){std::cerr<<"failed to establish resident source\n";return 5;}
