@@ -16,11 +16,11 @@ Trace generation and oracle construction occur before the timed baseline section
 
 The run_matrix script records UTC time, commit SHA, OS/kernel, CPU model, total RAM, compiler, CMake version, build type, declared thread count, graph path, seed, operation count, repetition, query count, elapsed nanoseconds, per-process peak RSS, and the material B4 configuration.
 
-Every timed B0–B4 measurement runs in a separate process. `run_matrix.sh` records `/usr/bin/time` peak RSS for that process, preventing both RSS and allocator/cache state from contaminating later baselines. Oracle construction occurs inside the process but outside the timed engine section.
+Every timed B0–B4 measurement runs in a separate process. Baseline order rotates deterministically by repetition to reduce systematic thermal/frequency order bias. Each generated operation trace carries a stable 64-bit fingerprint; B0–B4 rows for the same seed/workload must report the same fingerprint. `run_matrix.sh` records `/usr/bin/time` peak RSS for that process, preventing both RSS and allocator/cache state from contaminating later baselines. Oracle construction occurs inside the process but outside the timed engine section.
 
 ## Required workload families
 
-Seeded mixed synthetic traces; NY DIMACS distance and travel-time road graphs; local/geographic and broad/cross-region patterns; rotating semi-hot sources; update storms; catastrophic selected-SPT cuts; and repair-controller ablations.
+Seeded mixed synthetic traces; NY DIMACS distance and travel-time road graphs; true 2-D grid-derived local/geographic and broad/cross-region patterns with the same 25% update process as mixed traces; rotating semi-hot sources; update storms; catastrophic selected-SPT cuts; and repair-controller ablations.
 
 Performance claims require repetitions and distribution statistics. Exactness failure invalidates the corresponding performance run.
 

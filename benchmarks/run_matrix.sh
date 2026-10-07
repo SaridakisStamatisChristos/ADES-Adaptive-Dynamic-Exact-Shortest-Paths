@@ -12,9 +12,10 @@ ram_kb="$(awk '/MemTotal/{print $2;exit}' /proc/meminfo 2>/dev/null || echo unkn
  echo "compiler=$(c++ --version | head -n1)"; echo "cmake=$(cmake --version | head -n1)"; echo "build_type=Release"
  echo "graph=$graph"; echo "workload=$workload"; echo "coords=${coords:-none}"; echo "ops=$ops"; echo "seed=$seed"; echo "reps=$reps"; echo "b4_resident_cap=8"; echo "repair_policy=$policy"
 } | tee "$meta"
-echo "baseline,rep,seed,workload,policy,ops,queries,ns,cold_queries,resident_queries,promotions,rebuilds,filtered_updates,decrease_repairs,increase_repairs,repair_aborts,max_rss_kb" | tee "$out"
+echo "baseline,rep,seed,workload,policy,trace_hash,ops,queries,ns,cold_queries,resident_queries,promotions,rebuilds,filtered_updates,decrease_repairs,increase_repairs,repair_aborts,max_rss_kb" | tee "$out"
 for ((rep=0;rep<reps;rep++)); do
- for baseline in B0 B1 B2 B3 B4; do
+ baselines=(B0 B1 B2 B3 B4); offset=$((rep % 5))
+ for ((k=0;k<5;k++)); do baseline="${baselines[$(((k+offset)%5))]}"
   tmp="$(mktemp)"; rss="$(mktemp)"; args=(./build/ades_bench "$graph" "$baseline" "$ops" "$seed" "$rep" "$workload")
   if [[ -n "$coords" ]]; then args+=("$coords" "$policy"); else args+=("$policy"); fi
   /usr/bin/time -f '%M' -o "$rss" "${args[@]}" >"$tmp"
