@@ -27,10 +27,10 @@ static std::vector<Op> spatial_trace(const Graph&g,const std::vector<Coordinate>
  for(std::size_t i=0;i<n;i++){
   if(g.edge_count()&&r()%5==0){x.push_back({true,(std::uint32_t)(r()%g.edge_count()),0,r()%100});continue;}
   std::uint32_t s=0,t=0;
-  if(kind=="local"){auto p=r()%N;s=order[p];auto lo=p>band?p-band:0,hi=std::min(N,p+band+1);t=order[lo+r()%(hi-lo)];}
-  else if(kind=="cross"){auto q=std::max<std::size_t>(1,N/5);s=order[r()%q];t=order[N-q+r()%q];}
-  else if(kind=="clustered"){auto center=(seed*2654435761ULL)%N,lo=center>cluster/2?center-cluster/2:0,hi=std::min(N,lo+cluster);s=order[lo+r()%(hi-lo)];t=order[lo+r()%(hi-lo)];}
-  else if(kind=="moving"){auto p=(i*std::max<std::size_t>(1,N/std::max<std::size_t>(1,n)))%N;s=order[p];auto lo=p>band?p-band:0,hi=std::min(N,p+band+1);t=order[lo+r()%(hi-lo)];}
+  if(kind=="local"){std::size_t p=std::size_t(r()%N);s=order[p];std::size_t lo=p>band?p-band:0;std::size_t hi=std::min(N,p+band+1);t=order[lo+std::size_t(r()%(hi-lo))];}
+  else if(kind=="cross"){std::size_t q=std::max<std::size_t>(1,N/5);s=order[std::size_t(r()%q)];t=order[N-q+std::size_t(r()%q)];}
+  else if(kind=="clustered"){std::size_t center=std::size_t((seed*2654435761ULL)%N);std::size_t lo=center>cluster/2?center-cluster/2:0;std::size_t hi=std::min(N,lo+cluster);s=order[lo+std::size_t(r()%(hi-lo))];t=order[lo+std::size_t(r()%(hi-lo))];}
+  else if(kind=="moving"){std::size_t step=std::max<std::size_t>(1,N/std::max<std::size_t>(1,n));std::size_t p=(i*step)%N;s=order[p];std::size_t lo=p>band?p-band:0;std::size_t hi=std::min(N,p+band+1);t=order[lo+std::size_t(r()%(hi-lo))];}
   else throw std::runtime_error("unknown workload");
   x.push_back({false,s,t,0});
  }return x;
