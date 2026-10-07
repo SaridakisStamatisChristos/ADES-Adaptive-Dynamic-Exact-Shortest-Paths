@@ -4,7 +4,7 @@ from collections import defaultdict
 files=glob.glob("results/*.csv")
 matrix=defaultdict(list); controller=defaultdict(list)
 for path in files:
- metric=path.split("/")[-1].split("-")[1] if path.split("/")[-1].startswith("USA-road-") else "unknown"
+ name=path.split("/")[-1]\n metric="distance" if name.startswith("USA-road-d.NY-") else ("time" if name.startswith("USA-road-t.NY-") else "unknown")
  with open(path,newline="") as f:
   r=csv.DictReader(f)
   if not r.fieldnames: continue
