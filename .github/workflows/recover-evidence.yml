@@ -1,0 +1,63 @@
+name: Recover NY evidence aggregate
+on:
+  push:
+    branches: [fix/cross-run-evidence-aggregate]
+  workflow_dispatch:
+    inputs:
+      base_run_id:
+        description: Run containing the successful definitive cells
+        required: true
+        default: "37597808415"
+      recovery_run_id:
+        description: Run containing replacement artifacts
+        required: true
+        default: "37605773214"
+permissions:
+  actions: read
+  contents: read
+jobs:
+  aggregate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download definitive artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ny-*
+          path: downloaded/base
+          run-id: ${{ inputs.base_run_id || '37597808415' }}
+          github-token: ${{ github.token }}
+      - name: Download recovery artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ny-*
+          path: downloaded/recovery
+          run-id: ${{ inputs.recovery_run_id || '37605773214' }}
+          github-token: ${{ github.token }}
+      - name: Assemble and validate exact evidence set
+        run: |
+          rm -rf results && mkdir results
+          find downloaded/base -type f \( -name '*.csv' -o -name '*.meta' \) -exec cp {} results/ \;
+          find downloaded/recovery -type f \( -name '*.csv' -o -name '*.meta' \) -exec cp -f {} results/ \;
+          expected=(
+            USA-road-d.NY-mixed.csv USA-road-d.NY-local.csv USA-road-d.NY-cross.csv
+            USA-road-d.NY-clustered.csv USA-road-d.NY-moving.csv
+            USA-road-t.NY-mixed.csv USA-road-t.NY-local.csv USA-road-t.NY-cross.csv
+            USA-road-t.NY-clustered.csv USA-road-t.NY-moving.csv
+            USA-road-d.NY-controller.csv USA-road-t.NY-controller.csv
+          )
+          for f in "${expected[@]}"; do
+            [[ -s "results/$f" ]] || { echo "::error::Missing required evidence file: $f"; exit 1; }
+          done
+          [[ "$(find results -maxdepth 1 -name '*.csv' | wc -l)" -eq 12 ]] || {
+            echo "::error::Unexpected CSV count"; find results -maxdepth 1 -name '*.csv' -printf '%f\n' | sort; exit 1;
+          }
+          python3 benchmarks/summarize_results.py
+      - name: Show summary
+        run: cat results/SUMMARY.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ades-ny-evidence-recovered-${{ github.sha }}
+          path: results/
+          if-no-files-found: error
+          retention-days: 90
