@@ -115,6 +115,13 @@ static void epoch_membership_survives_repeated_repairs_and_wrap(){
  assert(repair_increase(g,s,cut,old,{100,100})==RepairResult::Repaired);
  assert(s.repair_epoch==1);assert(s.dist==dijkstra(g,0).dist);
 }
+static void repair_policy_modes_remain_exact(){
+ for(auto policy:{RepairPolicy::Fixed,RepairPolicy::VertexOnly,RepairPolicy::WorkAware}){
+  Graph g(8);auto cut=g.add_edge(0,1,1);for(std::uint32_t i=1;i<7;i++)g.add_edge(i,i+1,1);g.add_edge(0,7,50);
+  Config c=resident_cfg();c.repair_policy=policy;ADES a(std::move(g),c);assert(a.query(0,7)==7);
+  a.update(cut,10);assert(a.query(0,7)==16);
+ }
+}
 static void differential(){
  for(std::uint64_t seed=0;seed<12;seed++){
   std::mt19937_64 rng(seed);Graph base(35);
@@ -133,4 +140,4 @@ static void differential(){
   }
  }
 }
-int main(){shortest_path_corner_cases();saturating_distance_arithmetic();equal_distance_parent_cycle_prevention();dynamic_parallel_and_zero_weight_updates();epoch_membership_survives_repeated_repairs_and_wrap();repair_work_accounting_is_complete();work_aware_controller_tightens_after_expensive_repairs();weak_candidate_cannot_evict_hot_resident();abort_discovery_is_read_only();repeated_reparent_preserves_spt_links();update_storm_does_not_promote_without_queries();rotating_semihot_sources_do_not_expand_cache();cost_aware_admission();decrease_requires_propagation();parent_increase_repairs_subtree();tight_nonparent_increase_cannot_be_ignored();early_abort_rebuild_is_exact();differential();std::cout<<"ADES repair tests passed\n";}
+int main(){shortest_path_corner_cases();saturating_distance_arithmetic();equal_distance_parent_cycle_prevention();dynamic_parallel_and_zero_weight_updates();epoch_membership_survives_repeated_repairs_and_wrap();repair_policy_modes_remain_exact();repair_work_accounting_is_complete();work_aware_controller_tightens_after_expensive_repairs();weak_candidate_cannot_evict_hot_resident();abort_discovery_is_read_only();repeated_reparent_preserves_spt_links();update_storm_does_not_promote_without_queries();rotating_semihot_sources_do_not_expand_cache();cost_aware_admission();decrease_requires_propagation();parent_increase_repairs_subtree();tight_nonparent_increase_cannot_be_ignored();early_abort_rebuild_is_exact();differential();std::cout<<"ADES repair tests passed\n";}
