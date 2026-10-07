@@ -1,0 +1,43 @@
+name: ADES crossover evidence
+on:
+  workflow_dispatch:
+    inputs:
+      queries:
+        description: Queries per phase-diagram cell
+        required: true
+        default: "2000"
+
+permissions:
+  contents: read
+
+jobs:
+  crossover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Verify NY corpus
+        run: bash tools/verify_ny_dimacs.sh benchmarks/data
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+      - name: Run complete crossover phase diagram
+        run: |
+          set -euo pipefail
+          rm -rf results/crossover
+          mkdir -p results/crossover
+          bash benchmarks/run_phase_diagram.sh             benchmarks/data/USA-road-d.NY.gr.gz             "${{ inputs.queries }}"             results/crossover/phase.csv
+          python3 benchmarks/summarize_phase.py             results/crossover/phase.csv             > results/crossover/SUMMARY.md
+          test -s results/crossover/phase.csv
+          test -s results/crossover/SUMMARY.md
+      - name: Upload complete scientific evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-crossover-evidence-${{ github.sha }}
+          path: results/crossover/
+          if-no-files-found: error
+          retention-days: 90
