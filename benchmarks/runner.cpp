@@ -43,13 +43,16 @@ template<class E>static std::uint64_t run_engine(const char*name,E&e,const std::
 struct FreshDijkstra{Graph g;Distance query(std::uint32_t s,std::uint32_t t){return dijkstra(g,s).dist[t];}void update(std::uint32_t id,Weight w){g.update_weight(id,w);}};
 struct FreshBidir{Graph g;Distance query(std::uint32_t s,std::uint32_t t){return bidirectional_dijkstra(g,s,t);}void update(std::uint32_t id,Weight w){g.update_weight(id,w);}};
 int main(int argc,char**argv){
- if(argc<3){std::cerr<<"usage: ades_bench graph BASELINE [ops] [seed] [rep] [workload] [coords]\nworkload: mixed|local|cross|clustered|moving\n";return 2;}
- std::string baseline=argv[2],workload=argc>6?argv[6]:"mixed";auto base=Graph::load_dimacs_gr_gz(argv[1]);
+ if(argc<3){std::cerr<<"usage: ades_bench graph BASELINE [ops] [seed] [rep] [workload] [coords] [policy]\nworkload: mixed|local|cross|clustered|moving; policy: work|vertex|fixed\n";return 2;}
+ std::string baseline=argv[2],workload=argc>6?argv[6]:"mixed",policy=argc>8?argv[8]:"work";auto base=Graph::load_dimacs_gr_gz(argv[1]);
  std::size_t n=argc>3?std::strtoull(argv[3],nullptr,10):1000;std::uint64_t seed=argc>4?std::strtoull(argv[4],nullptr,10):7;int rep=argc>5?std::atoi(argv[5]):0;
  std::vector<Op> ops;if(workload=="mixed")ops=mixed_trace(base,seed,n);else{if(argc<8){std::cerr<<"spatial workload requires coordinate file\n";return 2;}auto coords=load_dimacs_co_gz(argv[7],base.vertex_count());ops=spatial_trace(base,coords,workload,seed,n);}
- auto ref=oracle(base,ops);std::uint64_t ns=0;
+ auto ref=oracle(base,ops);std::uint64_t ns=0;Stats stats{};
  if(baseline=="B0"){FreshDijkstra e{base};ns=run_engine("B0",e,ops,ref);}else if(baseline=="B1"){FreshBidir e{base};ns=run_engine("B1",e,ops,ref);}
  else if(baseline=="B2"){AlwaysResident e(base,ResidentMode::FullRebuild);ns=run_engine("B2",e,ops,ref);}else if(baseline=="B3"){AlwaysResident e(base,ResidentMode::LocalRepair);ns=run_engine("B3",e,ops,ref);}
- else if(baseline=="B4"){Config cfg;cfg.resident_cap=8;ADES e(base,cfg);ns=run_engine("B4",e,ops,ref);}else{std::cerr<<"unknown baseline "<<baseline<<"\n";return 2;}
- std::cout<<baseline<<","<<rep<<","<<seed<<","<<workload<<","<<n<<","<<ref.size()<<","<<ns<<"\n";
+ else if(baseline=="B4"){Config cfg;cfg.resident_cap=8;
+  if(policy=="fixed")cfg.repair_policy=RepairPolicy::Fixed;else if(policy=="vertex")cfg.repair_policy=RepairPolicy::VertexOnly;
+  else if(policy=="work")cfg.repair_policy=RepairPolicy::WorkAware;else{std::cerr<<"unknown policy "<<policy<<"\n";return 2;}
+  ADES e(base,cfg);ns=run_engine("B4",e,ops,ref);stats=e.stats();}else{std::cerr<<"unknown baseline "<<baseline<<"\n";return 2;}
+ std::cout<<baseline<<","<<rep<<","<<seed<<","<<workload<<","<<policy<<","<<n<<","<<ref.size()<<","<<ns<<","<<stats.cold_queries<<","<<stats.resident_queries<<","<<stats.promotions<<","<<stats.rebuilds<<","<<stats.filtered_updates<<","<<stats.decrease_repairs<<","<<stats.increase_repairs<<","<<stats.repair_aborts<<"\n";
 }
