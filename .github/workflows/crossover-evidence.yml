@@ -25,8 +25,39 @@ jobs:
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j2
           ctest --test-dir build --output-on-failure
-      - name: Run complete frozen crossover surface
-        run: bash benchmarks/run_phase_diagram.sh benchmarks/data/USA-road-d.NY.gr.gz evidence/crossover/ny-distance-phase.csv 2000
+      - name: Run complete frozen crossover surface with diagnostics
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostics
+          echo "diagnostic_start=$(date -u +%FT%TZ)" | tee diagnostics/context.txt
+          uname -a | tee -a diagnostics/context.txt
+          nproc | sed 's/^/nproc=/' | tee -a diagnostics/context.txt
+          free -h | tee diagnostics/memory-start.txt
+          df -h | tee diagnostics/disk-start.txt
+          (
+            while true; do
+              {
+                echo "===== $(date -u +%FT%TZ) ====="
+                uptime
+                free -h
+                df -h /
+                ps -eo pid,ppid,%cpu,%mem,rss,vsz,etime,stat,comm --sort=-rss | head -n 25
+                echo
+              } >> diagnostics/telemetry.log
+              sleep 15
+            done
+          ) &
+          monitor_pid=$!
+          trap 'kill "$monitor_pid" 2>/dev/null || true; wait "$monitor_pid" 2>/dev/null || true' EXIT
+          bash benchmarks/run_phase_diagram.sh benchmarks/data/USA-road-d.NY.gr.gz evidence/crossover/ny-distance-phase.csv 2000 2>&1 | tee diagnostics/benchmark.log
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crossover-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: diagnostics/
+          if-no-files-found: warn
+          retention-days: 30
       - name: Preserve complete evidence
         if: success()
         uses: actions/upload-artifact@v4
