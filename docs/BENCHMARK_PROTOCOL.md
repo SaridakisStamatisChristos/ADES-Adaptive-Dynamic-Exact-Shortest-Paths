@@ -14,9 +14,9 @@ Trace generation and oracle construction occur before the timed baseline section
 
 ## Reproducibility metadata
 
-The run_matrix script records UTC time, OS/kernel, compiler, CMake version, graph path, seed, operation count, repetition, query count, and elapsed nanoseconds. Build configuration and commit SHA must accompany archived experiment results.
+The run_matrix script records UTC time, commit SHA, OS/kernel, CPU model, total RAM, compiler, CMake version, build type, declared thread count, graph path, seed, operation count, repetition, query count, elapsed nanoseconds, per-process peak RSS, and the material B4 configuration.
 
-Peak RSS must be measured with baselines in separate processes. The combined runner intentionally does not report RSS because process-wide maximum RSS would contaminate later baselines.
+Every timed B0–B4 measurement runs in a separate process. `run_matrix.sh` records `/usr/bin/time` peak RSS for that process, preventing both RSS and allocator/cache state from contaminating later baselines. Oracle construction occurs inside the process but outside the timed engine section.
 
 ## Required workload families
 
