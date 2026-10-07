@@ -1,6 +1,7 @@
 #include "ades/ades.hpp"
 #include <cassert>
-#include <fstream>\n#include <iostream>
+#include <fstream>
+#include <iostream>
 #include <random>
 using namespace ades;
 static Config resident_cfg(){Config c;c.resident_cap=4;c.probation_queries=1;c.promotion_ratio=0.0;c.repair_safety_ceiling={100000,500000};return c;}
