@@ -1,5 +1,8 @@
 name: Definitive NY evidence
 on:
+  push:
+    branches:
+      - evidence/ny-definitive-parallel-2026-10-07
   workflow_dispatch:
     inputs:
       ops:
