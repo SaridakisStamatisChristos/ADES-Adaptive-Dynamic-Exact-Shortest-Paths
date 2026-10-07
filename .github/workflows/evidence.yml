@@ -44,8 +44,9 @@ jobs:
                 bash benchmarks/run_matrix.sh "$graph" "${{ inputs.ops }}" 7 "${{ inputs.reps }}" "$workload" benchmarks/data/USA-road-d.NY.co.gz
               fi
               latest="$(find results -maxdepth 1 -type f -name 'bench-*.csv' | sort | tail -n1)"
+              meta="${latest%.csv}.meta"
               mv "$latest" "results/${metric}-${workload}.csv"
-              meta="${latest%.csv}.meta"; [[ -f "$meta" ]] && mv "$meta" "results/${metric}-${workload}.meta"
+              [[ -f "$meta" ]] && mv "$meta" "results/${metric}-${workload}.meta"
               sleep 1
             done
           done
