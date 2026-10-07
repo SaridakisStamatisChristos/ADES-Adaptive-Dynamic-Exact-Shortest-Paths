@@ -19,8 +19,12 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 bash benchmarks/ny_smoke.sh ./build/ades_cli benchmarks/data
-./build/ades_bench benchmarks/data/USA-road-d.NY.gr.gz 200 7 3
-./build/ades_bench benchmarks/data/USA-road-t.NY.gr.gz 200 7 3
+./build/ades_bench benchmarks/data/USA-road-d.NY.gr.gz B4 200 7 0 mixed
+./build/ades_bench benchmarks/data/USA-road-t.NY.gr.gz B4 200 7 0 mixed
+bash benchmarks/run_matrix.sh benchmarks/data/USA-road-d.NY.gr.gz 200 7 3 local benchmarks/data/USA-road-d.NY.co.gz
+bash benchmarks/run_matrix.sh benchmarks/data/USA-road-d.NY.gr.gz 200 7 3 cross benchmarks/data/USA-road-d.NY.co.gz
+bash benchmarks/run_matrix.sh benchmarks/data/USA-road-d.NY.gr.gz 200 7 3 clustered benchmarks/data/USA-road-d.NY.co.gz
+bash benchmarks/run_matrix.sh benchmarks/data/USA-road-d.NY.gr.gz 200 7 3 moving benchmarks/data/USA-road-d.NY.co.gz
 ```
 
 ## Repository policy
@@ -31,6 +35,6 @@ For convenience, `tools/fetch_ny_dimacs.sh benchmarks/data` can attempt to acqui
 
 ## CI validation
 
-Changes under `benchmarks/data/` trigger the NY DIMACS validation workflow, which verifies the pinned corpus, builds and tests ADES, checks the pinned smoke distances, and executes the B0–B4 NY exactness gate.
+Changes under `benchmarks/data/` trigger the NY DIMACS validation workflow, which verifies the pinned corpus, builds and tests ADES, checks the pinned smoke distances, executes the isolated B0–B4 NY exactness gate, and oracle-checks B1/B4 on deterministic local, cross-region, clustered, and moving-source spatial workloads.
 
 <!-- NY CI diagnostic trigger: validates committed corpus and full benchmark gate. -->
