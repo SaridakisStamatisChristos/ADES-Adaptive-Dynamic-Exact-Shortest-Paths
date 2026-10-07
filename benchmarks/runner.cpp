@@ -44,7 +44,9 @@ struct FreshDijkstra{Graph g;Distance query(std::uint32_t s,std::uint32_t t){ret
 struct FreshBidir{Graph g;Distance query(std::uint32_t s,std::uint32_t t){return bidirectional_dijkstra(g,s,t);}void update(std::uint32_t id,Weight w){g.update_weight(id,w);}};
 int main(int argc,char**argv){
  if(argc<3){std::cerr<<"usage: ades_bench graph BASELINE [ops] [seed] [rep] [workload] [coords] [policy]\nworkload: mixed|local|cross|clustered|moving; policy: work|vertex|fixed\n";return 2;}
- std::string baseline=argv[2],workload=argc>6?argv[6]:"mixed",policy=argc>8?argv[8]:"work";auto base=Graph::load_dimacs_gr_gz(argv[1]);
+ std::string baseline=argv[2],workload=argc>6?argv[6]:"mixed",policy="work";
+ if(workload=="mixed"){if(argc>7)policy=argv[7];}else if(argc>8)policy=argv[8];
+ auto base=Graph::load_dimacs_gr_gz(argv[1]);
  std::size_t n=argc>3?std::strtoull(argv[3],nullptr,10):1000;std::uint64_t seed=argc>4?std::strtoull(argv[4],nullptr,10):7;int rep=argc>5?std::atoi(argv[5]):0;
  std::vector<Op> ops;if(workload=="mixed")ops=mixed_trace(base,seed,n);else{if(argc<8){std::cerr<<"spatial workload requires coordinate file\n";return 2;}auto coords=load_dimacs_co_gz(argv[7],base.vertex_count());ops=spatial_trace(base,coords,workload,seed,n);}
  auto ref=oracle(base,ops);std::uint64_t ns=0;Stats stats{};
