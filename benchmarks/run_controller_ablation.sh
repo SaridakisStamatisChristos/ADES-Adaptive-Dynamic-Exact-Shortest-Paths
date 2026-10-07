@@ -5,7 +5,8 @@ mkdir -p results; stamp="$(date -u +%Y%m%dT%H%M%SZ)"; out="results/controller-${
 echo "regime,policy,seed,rounds,source,ns,rebuilds,increase_repairs,repair_aborts,filtered_updates,max_rss_kb,rep" | tee "$out"
 for ((rep=0;rep<reps;rep++)); do
  for regime in small catastrophic; do
-  for policy in fixed vertex work; do
+  policies=(fixed vertex work); offset=$((rep % 3))
+  for ((k=0;k<3;k++)); do policy="${policies[$(((k+offset)%3))]}"
    tmp="$(mktemp)"; rss="$(mktemp)"
    /usr/bin/time -f '%M' -o "$rss" ./build/ades_controller_workload "$graph" "$regime" "$rounds" "$seed" "$policy" >"$tmp"
    echo "$(cat "$tmp"),$(cat "$rss"),$rep" | tee -a "$out";rm -f "$tmp" "$rss"
