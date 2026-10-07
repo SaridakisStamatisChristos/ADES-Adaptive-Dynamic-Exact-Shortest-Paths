@@ -5,22 +5,9 @@ on:
     paths: ['.github/workflows/crossover-evidence.yml']
   workflow_dispatch:
 jobs:
-  cell:
+  phase:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    strategy:
-      fail-fast: false
-      max-parallel: 20
-      matrix:
-        family: [uniform, zipf, single-hot, rotating-hot, hot-pool, churn]
-        update_every: [0, 1000, 200, 50, 10]
-        seed: [7, 17, 29, 43, 71]
-        hot_sources: [1, 2, 4, 8, 16, 32]
-    env:
-      FAMILY: ${{ matrix.family }}
-      UPDATE_EVERY: ${{ matrix.update_every }}
-      SEED: ${{ matrix.seed }}
-      HOT_SOURCES: ${{ matrix.hot_sources }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
@@ -31,33 +18,20 @@ jobs:
             bash tools/fetch_ny_dimacs.sh benchmarks/data
             bash tools/verify_ny_dimacs.sh benchmarks/data
           fi
-      - name: Build fixed algorithm
+      - name: Build fixed commit
         run: |
+          mkdir -p evidence/crossover
+          git rev-parse HEAD | tee evidence/crossover/evidence-commit.txt
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j2
           ctest --test-dir build --output-on-failure
-      - name: Run and validate atomic cell
-        run: |
-          set -euo pipefail
-          case "$FAMILY" in uniform|zipf|single-hot|rotating-hot|hot-pool|churn) ;; *) exit 2;; esac
-          case "$UPDATE_EVERY" in 0|1000|200|50|10) ;; *) exit 2;; esac
-          case "$SEED" in 7|17|29|43|71) ;; *) exit 2;; esac
-          case "$HOT_SOURCES" in 1|2|4|8|16|32) ;; *) exit 2;; esac
-          mkdir -p evidence/crossover-valid
-          tmp="$(mktemp)"
-          echo "baseline,family,seed,queries,updates,update_every,hot_sources,epoch,cap,ns,cold_queries,resident_queries,promotions,evictions,rebuilds,repair_aborts" > "$tmp"
-          for b in B1 B2 B3 B4; do
-            ./build/ades_phase benchmarks/data/USA-road-d.NY.gr.gz "$b" "$FAMILY" 2000 "$UPDATE_EVERY" "$HOT_SOURCES" 250 "$SEED" 8 >> "$tmp"
-          done
-          test "$(wc -l < "$tmp")" -eq 5
-          for b in B1 B2 B3 B4; do test "$(grep -c "^$b," "$tmp")" -eq 1; done
-          out="evidence/crossover-valid/${FAMILY}-u${UPDATE_EVERY}-s${SEED}-h${HOT_SOURCES}.csv"
-          mv "$tmp" "$out"
-      - name: Upload validated cell only
+      - name: Run complete frozen crossover surface
+        run: bash benchmarks/run_phase_diagram.sh benchmarks/data/USA-road-d.NY.gr.gz evidence/crossover/ny-distance-phase.csv 2000
+      - name: Preserve complete evidence
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: cell-${{ matrix.family }}-u${{ matrix.update_every }}-s${{ matrix.seed }}-h${{ matrix.hot_sources }}
-          path: evidence/crossover-valid/*.csv
+          name: crossover-evidence-${{ github.sha }}
+          path: evidence/crossover/
           if-no-files-found: error
           retention-days: 90
