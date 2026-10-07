@@ -53,10 +53,26 @@ static void repeated_reparent_preserves_spt_links(){
  auto olda=g.edge(a);g.update_weight(a,20);assert(repair_increase(g,s,a,olda,{100,100})==RepairResult::Repaired);
  auto ref=dijkstra(g,0);assert(s.dist==ref.dist);assert(s.dist[4]==13);(void)b;
 }
+static void repair_work_accounting_is_complete(){
+ Graph g(6);auto cut=g.add_edge(0,1,1);g.add_edge(1,2,1);g.add_edge(2,3,1);g.add_edge(3,4,1);g.add_edge(4,5,1);g.add_edge(0,5,20);
+ auto s=dijkstra(g,0);auto old=g.edge(cut);g.update_weight(cut,10);RepairWork w{};std::size_t discovered=0;
+ auto r=repair_increase(g,s,cut,old,{100,100},&discovered,&w);
+ assert(r==RepairResult::Repaired);assert(w.discovered_vertices==discovered);assert(w.discovered_vertices==5);
+ assert(w.tree_edges==4);assert(w.boundary_scans>0);assert(w.restricted_scans>0);assert(w.pq_pops>0);assert(w.total()>=w.discovered_vertices);
+ assert(s.dist[5]==14);
+}
+static void work_aware_controller_tightens_after_expensive_repairs(){
+ RepairController c(1.0,0.90);c.observe_rebuild(1000000);
+ RepairWork cheap{};cheap.discovered_vertices=10;cheap.tree_edges=9;cheap.boundary_scans=10;cheap.restricted_scans=10;cheap.pq_pops=10;
+ c.observe_repair(10000,cheap);auto generous=c.budget();
+ RepairWork expensive=cheap;expensive.boundary_scans=10000;expensive.restricted_scans=10000;expensive.pq_pops=10000;
+ c.observe_repair(900000,expensive);auto tight=c.budget();
+ assert(tight.vertices<generous.vertices);assert(tight.tree_edges<=generous.tree_edges);
+}
 static void differential(){
  for(std::uint64_t seed=0;seed<12;seed++){std::mt19937_64 rng(seed);Graph base(35);for(int i=0;i<220;i++){auto u=rng()%35,v=rng()%35;if(u!=v)base.add_edge(u,v,rng()%21);}
   ADES a(base,resident_cfg());for(int op=0;op<12000;op++){if(base.edge_count()&&rng()%3==0){auto id=rng()%base.edge_count();auto w=rng()%21;base.update_weight(id,w);a.update(id,w);}
    else{auto s=rng()%35,t=rng()%35;auto ref=dijkstra(base,s).dist[t];auto got=a.query(s,t);if(ref!=got){std::cerr<<"mismatch seed="<<seed<<" op="<<op<<"\n";std::abort();}}
   }}
 }
-int main(){weak_candidate_cannot_evict_hot_resident();abort_discovery_is_read_only();repeated_reparent_preserves_spt_links();update_storm_does_not_promote_without_queries();rotating_semihot_sources_do_not_expand_cache();cost_aware_admission();decrease_requires_propagation();parent_increase_repairs_subtree();tight_nonparent_increase_cannot_be_ignored();early_abort_rebuild_is_exact();differential();std::cout<<"ADES repair tests passed\n";}
+int main(){repair_work_accounting_is_complete();work_aware_controller_tightens_after_expensive_repairs();weak_candidate_cannot_evict_hot_resident();abort_discovery_is_read_only();repeated_reparent_preserves_spt_links();update_storm_does_not_promote_without_queries();rotating_semihot_sources_do_not_expand_cache();cost_aware_admission();decrease_requires_propagation();parent_increase_repairs_subtree();tight_nonparent_increase_cannot_be_ignored();early_abort_rebuild_is_exact();differential();std::cout<<"ADES repair tests passed\n";}
