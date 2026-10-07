@@ -28,7 +28,8 @@ static std::vector<Op> mixed_trace(const Graph&g,std::uint64_t seed,std::size_t 
   else x.push_back({false,(std::uint32_t)(r()%g.vertex_count()),(std::uint32_t)(r()%g.vertex_count()),0});}return x;
 }
 struct SpatialGrid{
- std::vector<std::vector<std::uint32_t>> cells;std::int64_t minx,miny,dx,dy;std::size_t side=32;
+ static constexpr std::size_t side=32;
+ std::vector<std::vector<std::uint32_t>> cells;std::int64_t minx,miny,dx,dy;
  explicit SpatialGrid(const std::vector<Coordinate>&c):cells(side*side){
   auto [xmin,xmax]=std::minmax_element(c.begin(),c.end(),[](auto&a,auto&b){return a.x<b.x;});
   auto [ymin,ymax]=std::minmax_element(c.begin(),c.end(),[](auto&a,auto&b){return a.y<b.y;});
