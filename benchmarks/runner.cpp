@@ -5,12 +5,23 @@
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
+#include <fstream>
 #include <random>
 #include <stdexcept>
 #include <string>
 #include <vector>
 using namespace ades;using Clock=std::chrono::steady_clock;
 struct Op{bool update;std::uint32_t a,b;Weight w;};
+static void write_oracle(const std::string&path,const std::vector<Op>&ops,const std::vector<Distance>&ref){
+ std::ofstream o(path);if(!o)throw std::runtime_error("cannot write oracle");o<<ops.size()<<" "<<ref.size()<<"\n";std::size_t q=0;
+ for(auto&x:ops){if(x.update)o<<"u "<<x.a<<" "<<x.w<<"\n";else o<<"q "<<x.a<<" "<<x.b<<" "<<ref.at(q++)<<"\n";}
+}
+static std::pair<std::vector<Op>,std::vector<Distance>> read_oracle(const std::string&path){
+ std::ifstream in(path);if(!in)throw std::runtime_error("cannot read oracle");std::size_t n=0,nq=0;if(!(in>>n>>nq))throw std::runtime_error("bad oracle header");
+ std::vector<Op> ops;std::vector<Distance> ref;ops.reserve(n);ref.reserve(nq);char k;
+ for(std::size_t i=0;i<n;i++){if(!(in>>k))throw std::runtime_error("truncated oracle");if(k=='u'){std::uint32_t id;Weight w;if(!(in>>id>>w))throw std::runtime_error("bad oracle update");ops.push_back({true,id,0,w});}else if(k=='q'){std::uint32_t s,t;Distance d;if(!(in>>s>>t>>d))throw std::runtime_error("bad oracle query");ops.push_back({false,s,t,0});ref.push_back(d);}else throw std::runtime_error("bad oracle op");}
+ if(ref.size()!=nq)throw std::runtime_error("oracle query-count mismatch");return {std::move(ops),std::move(ref)};
+}
 static std::vector<Op> mixed_trace(const Graph&g,std::uint64_t seed,std::size_t n){
  std::mt19937_64 r(seed);std::vector<Op>x;x.reserve(n);for(std::size_t i=0;i<n;i++){
   if(g.edge_count()&&r()%4==0)x.push_back({true,(std::uint32_t)(r()%g.edge_count()),0,r()%100});
@@ -49,13 +60,20 @@ template<class E>static std::uint64_t run_engine(const char*name,E&e,const std::
 struct FreshDijkstra{Graph g;Distance query(std::uint32_t s,std::uint32_t t){return dijkstra(g,s).dist[t];}void update(std::uint32_t id,Weight w){g.update_weight(id,w);}};
 struct FreshBidir{Graph g;Distance query(std::uint32_t s,std::uint32_t t){return bidirectional_dijkstra(g,s,t);}void update(std::uint32_t id,Weight w){g.update_weight(id,w);}};
 int main(int argc,char**argv){
- if(argc<3){std::cerr<<"usage: ades_bench graph BASELINE [ops] [seed] [rep] [workload] [coords] [policy]\nworkload: mixed|local|cross|clustered|moving; policy: work|vertex|fixed\n";return 2;}
+ if(argc<3){std::cerr<<"usage: ades_bench graph BASELINE [ops] [seed] [rep] [workload] [coords] [policy] [oracle_file]\nBASELINE may be ORACLE to generate a reusable trace+oracle.\nworkload: mixed|local|cross|clustered|moving; policy: work|vertex|fixed\n";return 2;}
  std::string baseline=argv[2],workload=argc>6?argv[6]:"mixed",policy="work";
  if(workload=="mixed"){if(argc>7)policy=argv[7];}else if(argc>8)policy=argv[8];
  auto base=Graph::load_dimacs_gr_gz(argv[1]);
  std::size_t n=argc>3?std::strtoull(argv[3],nullptr,10):1000;std::uint64_t seed=argc>4?std::strtoull(argv[4],nullptr,10):7;int rep=argc>5?std::atoi(argv[5]):0;
  std::vector<Op> ops;if(workload=="mixed")ops=mixed_trace(base,seed,n);else{if(argc<8){std::cerr<<"spatial workload requires coordinate file\n";return 2;}auto coords=load_dimacs_co_gz(argv[7],base.vertex_count());ops=spatial_trace(base,coords,workload,seed,n);}
- auto hash=trace_hash(ops);auto ref=oracle(base,ops);std::uint64_t ns=0;Stats stats{};
+ std::string oracle_file;
+ if(workload=="mixed"){if(argc>8)oracle_file=argv[8];}else if(argc>9)oracle_file=argv[9];
+ std::vector<Distance> ref;
+ if(!oracle_file.empty()&&baseline!="ORACLE"){auto loaded=read_oracle(oracle_file);ops=std::move(loaded.first);ref=std::move(loaded.second);}
+ else ref=oracle(base,ops);
+ auto hash=trace_hash(ops);
+ if(baseline=="ORACLE"){if(oracle_file.empty()){std::cerr<<"ORACLE requires oracle_file\n";return 2;}write_oracle(oracle_file,ops,ref);std::cout<<"ORACLE,0,"<<seed<<","<<workload<<",work,"<<hash<<","<<ops.size()<<","<<ref.size()<<",0,0,0,0,0,0,0,0,0\n";return 0;}
+ std::uint64_t ns=0;Stats stats{};
  if(baseline=="B0"){FreshDijkstra e{base};ns=run_engine("B0",e,ops,ref);}else if(baseline=="B1"){FreshBidir e{base};ns=run_engine("B1",e,ops,ref);}
  else if(baseline=="B2"){AlwaysResident e(base,ResidentMode::FullRebuild);ns=run_engine("B2",e,ops,ref);}else if(baseline=="B3"){AlwaysResident e(base,ResidentMode::LocalRepair);ns=run_engine("B3",e,ops,ref);}
  else if(baseline=="B4"){Config cfg;cfg.resident_cap=8;
