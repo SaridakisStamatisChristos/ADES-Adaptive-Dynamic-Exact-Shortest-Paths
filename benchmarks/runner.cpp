@@ -16,25 +16,31 @@ static std::vector<Op> mixed_trace(const Graph&g,std::uint64_t seed,std::size_t 
   if(g.edge_count()&&r()%4==0)x.push_back({true,(std::uint32_t)(r()%g.edge_count()),0,r()%100});
   else x.push_back({false,(std::uint32_t)(r()%g.vertex_count()),(std::uint32_t)(r()%g.vertex_count()),0});}return x;
 }
-static std::vector<std::uint32_t> ordered_vertices(const std::vector<Coordinate>&c){
- std::vector<std::uint32_t> v(c.size());for(std::uint32_t i=0;i<v.size();i++)v[i]=i;
- std::sort(v.begin(),v.end(),[&](auto a,auto b){return c[a].x==c[b].x?c[a].y<c[b].y:c[a].x<c[b].x;});return v;
-}
+struct SpatialGrid{
+ std::vector<std::vector<std::uint32_t>> cells;std::int64_t minx,miny,dx,dy;std::size_t side=32;
+ explicit SpatialGrid(const std::vector<Coordinate>&c):cells(side*side){
+  auto [xmin,xmax]=std::minmax_element(c.begin(),c.end(),[](auto&a,auto&b){return a.x<b.x;});
+  auto [ymin,ymax]=std::minmax_element(c.begin(),c.end(),[](auto&a,auto&b){return a.y<b.y;});
+  minx=xmin->x;miny=ymin->y;dx=std::max<std::int64_t>(1,std::int64_t(xmax->x)-minx+1);dy=std::max<std::int64_t>(1,std::int64_t(ymax->y)-miny+1);
+  for(std::uint32_t v=0;v<c.size();v++){auto ix=std::min<std::size_t>(side-1,(std::uint64_t(std::int64_t(c[v].x)-minx)*side)/dx);auto iy=std::min<std::size_t>(side-1,(std::uint64_t(std::int64_t(c[v].y)-miny)*side)/dy);cells[iy*side+ix].push_back(v);}
+ }
+ std::size_t nonempty(std::size_t start,std::size_t step=1)const{for(std::size_t k=0;k<cells.size();k++){auto i=(start+k*step)%cells.size();if(!cells[i].empty())return i;}throw std::runtime_error("empty spatial grid");}
+};
 static std::vector<Op> spatial_trace(const Graph&g,const std::vector<Coordinate>&c,const std::string&kind,std::uint64_t seed,std::size_t n){
- if(c.size()!=g.vertex_count())throw std::runtime_error("coordinate/graph size mismatch");
- auto order=ordered_vertices(c);std::mt19937_64 r(seed);std::vector<Op>x;x.reserve(n);const std::size_t N=order.size();if(N==0)throw std::runtime_error("empty coordinate corpus");
- const std::size_t band=std::max<std::size_t>(8,N/100),cluster=std::max<std::size_t>(16,N/20);
+ if(c.size()!=g.vertex_count()||c.empty())throw std::runtime_error("coordinate/graph size mismatch");SpatialGrid grid(c);std::mt19937_64 r(seed);std::vector<Op>x;x.reserve(n);
+ auto pick=[&](std::size_t cell){auto&v=grid.cells[cell];return v[r()%v.size()];};
+ std::size_t cluster=grid.nonempty(seed%grid.cells.size()),moving=grid.nonempty(0);
  for(std::size_t i=0;i<n;i++){
-  if(g.edge_count()&&r()%5==0){x.push_back({true,(std::uint32_t)(r()%g.edge_count()),0,r()%100});continue;}
+  if(g.edge_count()&&r()%4==0){x.push_back({true,(std::uint32_t)(r()%g.edge_count()),0,r()%100});continue;}
   std::uint32_t s=0,t=0;
-  if(kind=="local"){std::size_t p=std::size_t(r()%N);s=order[p];std::size_t lo=p>band?p-band:0;std::size_t hi=std::min(N,p+band+1);t=order[lo+std::size_t(r()%(hi-lo))];}
-  else if(kind=="cross"){std::size_t q=std::max<std::size_t>(1,N/5);s=order[std::size_t(r()%q)];t=order[N-q+std::size_t(r()%q)];}
-  else if(kind=="clustered"){std::size_t center=std::size_t((seed*2654435761ULL)%N);std::size_t lo=center>cluster/2?center-cluster/2:0;std::size_t hi=std::min(N,lo+cluster);s=order[lo+std::size_t(r()%(hi-lo))];t=order[lo+std::size_t(r()%(hi-lo))];}
-  else if(kind=="moving"){std::size_t step=std::max<std::size_t>(1,N/std::max<std::size_t>(1,n));std::size_t p=(i*step)%N;s=order[p];std::size_t lo=p>band?p-band:0;std::size_t hi=std::min(N,p+band+1);t=order[lo+std::size_t(r()%(hi-lo))];}
-  else throw std::runtime_error("unknown workload");
-  x.push_back({false,s,t,0});
+  if(kind=="local"){auto cell=grid.nonempty(r()%grid.cells.size());s=pick(cell);t=pick(cell);}
+  else if(kind=="cross"){auto a=grid.nonempty(r()%grid.cells.size());auto ax=a%grid.side,ay=a/grid.side;auto opposite=(grid.side-1-ay)*grid.side+(grid.side-1-ax);auto b=grid.nonempty(opposite);s=pick(a);t=pick(b);}
+  else if(kind=="clustered"){s=pick(cluster);t=pick(cluster);}
+  else if(kind=="moving"){moving=grid.nonempty((moving+1)%grid.cells.size());s=pick(moving);t=pick(moving);}
+  else throw std::runtime_error("unknown workload");x.push_back({false,s,t,0});
  }return x;
 }
+static std::uint64_t trace_hash(const std::vector<Op>&ops){std::uint64_t h=1469598103934665603ULL;auto mix=[&](std::uint64_t v){for(int i=0;i<8;i++){h^=(v>>(i*8))&255;h*=1099511628211ULL;}};for(auto&o:ops){mix(o.update);mix(o.a);mix(o.b);mix(o.w);}return h;}
 static std::vector<Distance> oracle(Graph g,const std::vector<Op>&ops){std::vector<Distance> out;for(auto&o:ops)if(o.update)g.update_weight(o.a,o.w);else out.push_back(dijkstra(g,o.a).dist[o.b]);return out;}
 template<class E>static std::uint64_t run_engine(const char*name,E&e,const std::vector<Op>&ops,const std::vector<Distance>&ref){
  std::size_t qi=0;auto t=Clock::now();for(auto&o:ops)if(o.update)e.update(o.a,o.w);else if(e.query(o.a,o.b)!=ref.at(qi++)){std::cerr<<name<<" exactness failure at query "<<qi-1<<"\n";std::exit(3);}
@@ -49,12 +55,12 @@ int main(int argc,char**argv){
  auto base=Graph::load_dimacs_gr_gz(argv[1]);
  std::size_t n=argc>3?std::strtoull(argv[3],nullptr,10):1000;std::uint64_t seed=argc>4?std::strtoull(argv[4],nullptr,10):7;int rep=argc>5?std::atoi(argv[5]):0;
  std::vector<Op> ops;if(workload=="mixed")ops=mixed_trace(base,seed,n);else{if(argc<8){std::cerr<<"spatial workload requires coordinate file\n";return 2;}auto coords=load_dimacs_co_gz(argv[7],base.vertex_count());ops=spatial_trace(base,coords,workload,seed,n);}
- auto ref=oracle(base,ops);std::uint64_t ns=0;Stats stats{};
+ auto hash=trace_hash(ops);auto ref=oracle(base,ops);std::uint64_t ns=0;Stats stats{};
  if(baseline=="B0"){FreshDijkstra e{base};ns=run_engine("B0",e,ops,ref);}else if(baseline=="B1"){FreshBidir e{base};ns=run_engine("B1",e,ops,ref);}
  else if(baseline=="B2"){AlwaysResident e(base,ResidentMode::FullRebuild);ns=run_engine("B2",e,ops,ref);}else if(baseline=="B3"){AlwaysResident e(base,ResidentMode::LocalRepair);ns=run_engine("B3",e,ops,ref);}
  else if(baseline=="B4"){Config cfg;cfg.resident_cap=8;
   if(policy=="fixed")cfg.repair_policy=RepairPolicy::Fixed;else if(policy=="vertex")cfg.repair_policy=RepairPolicy::VertexOnly;
   else if(policy=="work")cfg.repair_policy=RepairPolicy::WorkAware;else{std::cerr<<"unknown policy "<<policy<<"\n";return 2;}
   ADES e(base,cfg);ns=run_engine("B4",e,ops,ref);stats=e.stats();}else{std::cerr<<"unknown baseline "<<baseline<<"\n";return 2;}
- std::cout<<baseline<<","<<rep<<","<<seed<<","<<workload<<","<<policy<<","<<n<<","<<ref.size()<<","<<ns<<","<<stats.cold_queries<<","<<stats.resident_queries<<","<<stats.promotions<<","<<stats.rebuilds<<","<<stats.filtered_updates<<","<<stats.decrease_repairs<<","<<stats.increase_repairs<<","<<stats.repair_aborts<<"\n";
+ std::cout<<baseline<<","<<rep<<","<<seed<<","<<workload<<","<<policy<<","<<hash<<","<<n<<","<<ref.size()<<","<<ns<<","<<stats.cold_queries<<","<<stats.resident_queries<<","<<stats.promotions<<","<<stats.rebuilds<<","<<stats.filtered_updates<<","<<stats.decrease_repairs<<","<<stats.increase_repairs<<","<<stats.repair_aborts<<"\n";
 }
