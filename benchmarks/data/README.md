@@ -32,3 +32,5 @@ For convenience, `tools/fetch_ny_dimacs.sh benchmarks/data` can attempt to acqui
 ## CI validation
 
 Changes under `benchmarks/data/` trigger the NY DIMACS validation workflow, which verifies the pinned corpus, builds and tests ADES, checks the pinned smoke distances, and executes the B0–B4 NY exactness gate.
+
+<!-- NY CI diagnostic trigger: validates committed corpus and full benchmark gate. -->
