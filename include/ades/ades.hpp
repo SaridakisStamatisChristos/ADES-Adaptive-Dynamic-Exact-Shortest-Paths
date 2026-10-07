@@ -5,12 +5,12 @@
 namespace ades {
 struct Config {
  std::size_t resident_cap=4; std::uint32_t probation_queries=4; double promotion_ratio=1.05;
- std::uint64_t cooldown_queries=32; double eviction_update_penalty=4.0;
+ std::uint64_t cooldown_queries=32; double eviction_update_penalty=4.0; double admission_hysteresis=1.10;
  RepairBudget repair_safety_ceiling{1u<<20,1u<<22};
 };
 struct Stats {
  std::uint64_t cold_queries=0,resident_queries=0,promotions=0,evictions=0,cooldown_blocks=0,rebuilds=0,
- filtered_updates=0,decrease_repairs=0,increase_repairs=0,repair_aborts=0;
+ admission_rejections=0,filtered_updates=0,decrease_repairs=0,increase_repairs=0,repair_aborts=0;
 };
 class ADES {
  Graph graph_; Config cfg_; Stats stats_; std::uint64_t query_clock_=0;
@@ -20,7 +20,7 @@ class ADES {
  std::unordered_map<std::uint32_t,Probation> probation_;
  std::unordered_map<std::uint32_t,std::uint64_t> cooldown_until_;
  void rebuild(std::uint32_t source);
- bool admit(std::uint32_t source);
+ bool admit(std::uint32_t source,double candidate_score);
  double resident_score(const Entry&)const;
 public:
  explicit ADES(Graph g,Config c={}):graph_(std::move(g)),cfg_(c){}
