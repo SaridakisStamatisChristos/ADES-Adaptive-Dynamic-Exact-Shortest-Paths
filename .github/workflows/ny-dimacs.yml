@@ -37,5 +37,8 @@ jobs:
         run: bash benchmarks/ny_smoke.sh ./build/ades_cli benchmarks/data
       - name: B0-B4 NY correctness gate
         run: |
-          ./build/ades_bench benchmarks/data/USA-road-d.NY.gr.gz 40 7 1
-          ./build/ades_bench benchmarks/data/USA-road-t.NY.gr.gz 40 7 1
+          for graph in benchmarks/data/USA-road-d.NY.gr.gz benchmarks/data/USA-road-t.NY.gr.gz; do
+            for baseline in B0 B1 B2 B3 B4; do
+              ./build/ades_bench "$graph" "$baseline" 40 7 0
+            done
+          done
