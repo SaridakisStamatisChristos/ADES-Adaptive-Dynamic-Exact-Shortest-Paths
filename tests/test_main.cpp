@@ -1,4 +1,4 @@
-#include "ades/ades.hpp"\n#include "ades/coordinates.hpp"
+#include "ades/ades.hpp"
 #include <cassert>
 #include <fstream>
 #include <iostream>
