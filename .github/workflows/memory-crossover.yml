@@ -1,0 +1,50 @@
+name: ADES matched-cap memory crossover
+on:
+  workflow_dispatch:
+    inputs:
+      queries:
+        description: 'Queries per matched trace'
+        required: true
+        default: '10'
+      repeats:
+        description: 'Repetitions (default 2)'
+        required: true
+        default: '2'
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Verify New York graph
+        run: bash tools/verify_ny_dimacs.sh benchmarks/data
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+      - name: Matched-cap diagnostic
+        env:
+          QUERIES: ${{ inputs.queries }}
+          REPEATS: ${{ inputs.repeats }}
+        run: |
+          set -euo pipefail
+          [[ "$QUERIES" =~ ^[1-9][0-9]*$ ]]
+          [[ "$REPEATS" =~ ^[1-9][0-9]*$ ]]
+          python3 tools/memory_crossover.py \
+            --graph benchmarks/data/USA-road-d.NY.gr.gz \
+            --queries "$QUERIES" --repeats "$REPEATS" \
+            --caps 2 8 --seeds 7 17 --families uniform single-hot \
+            --update-every 0 10 --timeout 180
+      - name: Upload diagnostics including partial failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-matched-cap-${{ github.run_id }}-${{ github.run_attempt }}
+          path: results/memory-crossover/
+          if-no-files-found: warn
+          retention-days: 30
