@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Versioned parser for ades_phase CSV rows."""
+"""Versioned parser for ades_phase and scientific-ablation CSV rows."""
 
 PHASE_FIELDS_V1 = (
     "baseline", "family", "seed", "trace_sha256", "queries", "updates",
@@ -28,6 +28,15 @@ PHASE_FIELDS_V2 = (
     "b4_update_policy_ns",
 )
 
+ADES_ENGINE_BASELINES = {
+    "B4",
+    "COLD",
+    "FREQ-LRU-REBUILD",
+    "FREQ-LRU-REPAIR",
+    "WORK-LRU-REPAIR",
+    "WORK-DEBT-REPAIR",
+}
+
 
 def parse_phase_line(line):
     parts = line.rstrip("\n").split(",")
@@ -48,7 +57,7 @@ def validate_v2_reconciliation(row):
     update = int(row["update_ns"])
     if algorithm != query + update:
         raise ValueError("algorithm_ns does not equal query_ns + update_ns")
-    if row["baseline"] != "B4":
+    if row["baseline"] not in ADES_ENGINE_BASELINES:
         return
     b4_query = int(row["b4_query_time_ns"])
     b4_update = int(row["b4_update_time_ns"])
@@ -61,6 +70,6 @@ def validate_v2_reconciliation(row):
         "b4_rebuild_ns", "b4_controller_ns", "b4_update_policy_ns",
     ))
     if b4_query != query_parts:
-        raise ValueError("B4 query components do not reconcile")
+        raise ValueError("ADES-engine query components do not reconcile")
     if b4_update != update_parts:
-        raise ValueError("B4 update components do not reconcile")
+        raise ValueError("ADES-engine update components do not reconcile")
