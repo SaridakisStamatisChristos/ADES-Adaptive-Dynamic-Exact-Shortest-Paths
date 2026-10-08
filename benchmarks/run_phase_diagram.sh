@@ -2,7 +2,12 @@
 set -euo pipefail
 if [[ $# -lt 2 ]]; then echo "usage: $0 GRAPH OUT.csv [queries=10000]"; exit 2; fi
 g="$1"; out="$2"; q="${3:-10000}"
-echo "baseline,family,seed,trace_sha256,queries,updates,increase_count,decrease_count,update_every,hot_sources,epoch,cap,persistent_state_budget_bytes,accounted_algorithm_state_bytes,peak_accounted_algorithm_state_bytes,accounting_version,ns,cold_queries,resident_queries,promotions,evictions,rebuilds,repair_aborts" > "$out"
+python3 - <<'PY' > "$out"
+import sys
+sys.path.insert(0,"tools")
+from phase_schema import PHASE_FIELDS_V2
+print(",".join(PHASE_FIELDS_V2))
+PY
 families=(uniform zipf single-hot rotating-hot hot-pool churn)
 updates=(0 1000 200 50 10)
 hots=(1 2 4 8 16 32)
