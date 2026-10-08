@@ -1,0 +1,41 @@
+name: ADES single-cell diagnostic
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  single-cell:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Verify NY corpus
+        run: bash tools/verify_ny_dimacs.sh benchmarks/data
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+      - name: Run one crossover cell, 10 queries, four baselines
+        run: |
+          set -euo pipefail
+          mkdir -p results/single-cell
+          echo 'baseline,family,seed,queries,updates,update_every,hot_sources,epoch,cap,ns,cold_queries,resident_queries,promotions,evictions,rebuilds,repair_aborts' > results/single-cell/phase.csv
+          for baseline in B1 B2 B3 B4; do
+            echo "START baseline=${baseline} utc=$(date -u +%FT%TZ)"
+            /usr/bin/time -v ./build/ades_phase benchmarks/data/USA-road-d.NY.gr.gz "$baseline" single-hot 10 0 1 250 7 8 >> results/single-cell/phase.csv
+            echo "DONE baseline=${baseline} utc=$(date -u +%FT%TZ)"
+          done
+          test "$(wc -l < results/single-cell/phase.csv)" -eq 5
+          cat results/single-cell/phase.csv
+      - name: Upload complete diagnostic
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-single-cell-diagnostic
+          path: results/single-cell/phase.csv
+          if-no-files-found: error
