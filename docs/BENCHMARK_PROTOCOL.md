@@ -51,6 +51,34 @@ The phase/bounded-comparator runner reports the same canonical SHA-256 and opera
 
 The old 64-bit engineering fingerprint remains present only in archived pre-PR42 evidence. It is not sufficient trace identity for new publication-facing experiments.
 
+## Equal-byte persistent-state fairness
+
+PR43 introduces the common publication memory-control mechanism required by claim `C3`.
+
+The fairness metric is `accounted_algorithm_state_bytes`, a versioned logical model of algorithm-owned persistent adaptive state. It is deliberately distinct from `peak_rss`. The complete accounting boundary and formulas are frozen in `docs/EQUAL_BYTE_BUDGET_PR43.md`.
+
+Publication-facing bounded comparisons after PR43 must record at least:
+
+```text
+persistent_state_budget_bytes
+accounted_algorithm_state_bytes
+peak_accounted_algorithm_state_bytes
+accounting_version
+peak_rss
+```
+
+For B2L, B3L and B4, setting:
+
+```text
+ADES_PERSISTENT_STATE_BUDGET_BYTES=<positive integer>
+```
+
+activates hard enforcement. In that mode the phase runner raises the source-count ceiling to `|V|`, making it nonbinding so the byte budget controls residency. A measured row is invalid if either current or peak accounted persistent state exceeds the declared budget.
+
+Equal-byte matched cells must use the same configured budget and accounting version for every direct bounded comparator. `tools/equal_byte_crossover.py` rejects a cell if B2L/B3L/B4 disagree on byte budget, accounting version, SHA-256 trace identity, or operation counts, or if any comparator exceeds the hard budget.
+
+Legacy equal-source-cap experiments remain valid engineering diagnostics but do **not** satisfy C3 and must not be relabeled as equal-byte publication evidence.
+
 ## Reproducibility metadata
 
 The run_matrix script records UTC time, commit SHA, OS/kernel, CPU model, total RAM, compiler, CMake version, build type, declared thread count, graph path, seed, operation count, repetition, query/update counts, update-direction counts, trace SHA-256, elapsed nanoseconds, per-process peak RSS, and the material B4 configuration.
