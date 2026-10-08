@@ -23,6 +23,10 @@ add_executable(ades_memory_budget_tests tests/memory_budget.cpp)
 target_link_libraries(ades_memory_budget_tests PRIVATE ades)
 add_test(NAME ades_memory_budget_tests COMMAND ades_memory_budget_tests)
 
+add_executable(ades_telemetry_tests tests/telemetry.cpp)
+target_link_libraries(ades_telemetry_tests PRIVATE ades)
+add_test(NAME ades_telemetry_tests COMMAND ades_telemetry_tests)
+
 add_executable(ades_bench benchmarks/runner.cpp)
 target_link_libraries(ades_bench PRIVATE ades)
 
