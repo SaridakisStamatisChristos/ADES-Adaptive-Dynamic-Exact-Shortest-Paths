@@ -1,0 +1,117 @@
+name: ADES workload generator v2 gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  workload-v2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Verify New York graph
+        run: bash tools/verify_ny_dimacs.sh benchmarks/data
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+      - name: Generate byte-identical duplicate traces
+        run: |
+          set -euo pipefail
+          mkdir -p results/workload-v2
+          graph=benchmarks/data/USA-road-d.NY.gr.gz
+          ./build/ades_workload_v2 "$graph" \
+            results/workload-v2/determinism-a.trace results/workload-v2/determinism-a.json \
+            17 80 hot-pool 10 strict-alternating medium 4 20 90 4
+          ./build/ades_workload_v2 "$graph" \
+            results/workload-v2/determinism-b.trace results/workload-v2/determinism-b.json \
+            17 80 hot-pool 10 strict-alternating medium 4 20 90 4
+          cmp results/workload-v2/determinism-a.trace results/workload-v2/determinism-b.trace
+          cmp results/workload-v2/determinism-a.json results/workload-v2/determinism-b.json
+      - name: Exercise frozen workload axes
+        run: |
+          set -euo pipefail
+          graph=benchmarks/data/USA-road-d.NY.gr.gz
+          out=results/workload-v2
+          for family in uniform single-hot hot-pool zipf rotating-hot churn; do
+            ./build/ades_workload_v2 "$graph" "$out/family-${family}.trace" "$out/family-${family}.json" \
+              23 60 "$family" 0 strict-alternating medium 4 15 90 4
+          done
+          for mode in increase-only decrease-only balanced-random strict-alternating bursty repeated-edge; do
+            ./build/ades_workload_v2 "$graph" "$out/mode-${mode}.trace" "$out/mode-${mode}.json" \
+              29 60 hot-pool 5 "$mode" medium 4 15 90 3
+          done
+          for magnitude in small medium large; do
+            ./build/ades_workload_v2 "$graph" "$out/magnitude-${magnitude}.trace" "$out/magnitude-${magnitude}.json" \
+              31 60 hot-pool 10 strict-alternating "$magnitude" 4 15 90 4
+          done
+          for interval in 0 2 5 10 50 100; do
+            ./build/ades_workload_v2 "$graph" "$out/rate-${interval}.trace" "$out/rate-${interval}.json" \
+              37 120 hot-pool "$interval" strict-alternating medium 4 20 75 4
+          done
+      - name: Verify hashes, metadata and axis coverage
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          root = Path("results/workload-v2")
+          graph = Path("benchmarks/data/USA-road-d.NY.gr.gz")
+          graph_sha = hashlib.sha256(graph.read_bytes()).hexdigest()
+
+          for meta_path in root.glob("*.json"):
+              data = json.loads(meta_path.read_text())
+              assert data["schema"] == "ades-workload-v2"
+              assert data["generator_version"] == 2
+              assert data["claim_ids"] == ["C2", "C8"]
+              assert data["graph_sha256"] == graph_sha
+              trace_path = meta_path.with_suffix(".trace")
+              assert trace_path.is_file(), trace_path
+              assert hashlib.sha256(trace_path.read_bytes()).hexdigest() == data["trace_sha256"]
+              assert data["query_count"] == data["config"]["query_count"]
+              assert data["update_count"] == data["increase_count"] + data["decrease_count"]
+
+          a = json.loads((root / "determinism-a.json").read_text())
+          assert a["update_count"] == (80 - 1) // 10
+
+          families = {json.loads(p.read_text())["config"]["source_family"]
+                      for p in root.glob("family-*.json")}
+          modes = {json.loads(p.read_text())["config"]["update_mode"]
+                   for p in root.glob("mode-*.json")}
+          magnitudes = {json.loads(p.read_text())["config"]["magnitude"]
+                        for p in root.glob("magnitude-*.json")}
+          rates = {json.loads(p.read_text())["config"]["update_interval"]
+                   for p in root.glob("rate-*.json")}
+
+          assert families == {"uniform", "single-hot", "hot-pool", "zipf", "rotating-hot", "churn"}
+          assert modes == {"increase-only", "decrease-only", "balanced-random", "strict-alternating", "bursty", "repeated-edge"}
+          assert magnitudes == {"small", "medium", "large"}
+          assert rates == {0, 2, 5, 10, 50, 100}
+
+          summary = {
+              "schema": "ades-pr46-workload-v2-gate",
+              "status": "PASS",
+              "claim_ids": ["C2", "C8"],
+              "graph_sha256": graph_sha,
+              "deterministic_trace_sha256": a["trace_sha256"],
+              "source_families": sorted(families),
+              "update_modes": sorted(modes),
+              "magnitudes": sorted(magnitudes),
+              "update_intervals": sorted(rates),
+          }
+          (root / "SUMMARY.json").write_text(json.dumps(summary, indent=2) + "\n")
+          PY
+      - name: Upload workload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-workload-generator-v2-pr46
+          path: results/workload-v2
+          if-no-files-found: error

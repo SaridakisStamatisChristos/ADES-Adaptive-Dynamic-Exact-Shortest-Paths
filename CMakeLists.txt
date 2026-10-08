@@ -4,7 +4,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(ZLIB REQUIRED)
-add_library(ades src/graph.cpp src/coordinates.cpp src/shortest_paths.cpp src/dynamic_repair.cpp src/ades.cpp src/trace.cpp)
+add_library(ades src/graph.cpp src/coordinates.cpp src/shortest_paths.cpp src/dynamic_repair.cpp src/ades.cpp src/trace.cpp src/workload.cpp)
 target_include_directories(ades PUBLIC include)
 target_link_libraries(ades PUBLIC ZLIB::ZLIB)
 target_compile_options(ades PRIVATE -Wall -Wextra -Wpedantic)
@@ -31,6 +31,10 @@ add_executable(ades_ablation_tests tests/ablations.cpp)
 target_link_libraries(ades_ablation_tests PRIVATE ades)
 add_test(NAME ades_ablation_tests COMMAND ades_ablation_tests)
 
+add_executable(ades_workload_v2_tests tests/workload_v2.cpp)
+target_link_libraries(ades_workload_v2_tests PRIVATE ades)
+add_test(NAME ades_workload_v2_tests COMMAND ades_workload_v2_tests)
+
 add_executable(ades_bench benchmarks/runner.cpp)
 target_link_libraries(ades_bench PRIVATE ades)
 
@@ -48,3 +52,6 @@ target_link_libraries(ades_phase PRIVATE ades)
 
 add_executable(ades_scientific_ablations benchmarks/scientific_ablations.cpp)
 target_link_libraries(ades_scientific_ablations PRIVATE ades)
+
+add_executable(ades_workload_v2 tools/workload_v2.cpp)
+target_link_libraries(ades_workload_v2 PRIVATE ades)

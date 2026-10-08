@@ -146,6 +146,13 @@ void append_uint(std::string& out, UInt value) {
   out.append(buf.data(), end);
 }
 
+std::string digest_hex(const std::array<std::uint8_t, 32>& digest) {
+  std::ostringstream out;
+  out << std::hex << std::setfill('0');
+  for (auto byte : digest) out << std::setw(2) << static_cast<unsigned>(byte);
+  return out.str();
+}
+
 std::uint32_t checked_u32(std::uint64_t value, const char* field) {
   if (value > std::numeric_limits<std::uint32_t>::max()) {
     throw std::runtime_error(std::string(field) + " exceeds uint32 range");
@@ -154,6 +161,26 @@ std::uint32_t checked_u32(std::uint64_t value, const char* field) {
 }
 
 }  // namespace
+
+std::string sha256_bytes(std::string_view bytes) {
+  Sha256 sha;
+  sha.update(bytes);
+  return digest_hex(sha.finish());
+}
+
+std::string file_sha256(const std::string& path) {
+  std::ifstream in(path, std::ios::binary);
+  if (!in) throw std::runtime_error("cannot hash file: " + path);
+  Sha256 sha;
+  std::array<char, 64 * 1024> buffer{};
+  while (in) {
+    in.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+    const auto count = in.gcount();
+    if (count > 0) sha.update(std::string_view(buffer.data(), static_cast<std::size_t>(count)));
+  }
+  if (!in.eof()) throw std::runtime_error("failed while hashing file: " + path);
+  return digest_hex(sha.finish());
+}
 
 std::string canonical_trace_bytes(const std::vector<TraceOp>& ops) {
   std::string out;
@@ -181,13 +208,7 @@ std::string canonical_trace_bytes(const std::vector<TraceOp>& ops) {
 }
 
 std::string trace_sha256(const std::vector<TraceOp>& ops) {
-  Sha256 sha;
-  sha.update(canonical_trace_bytes(ops));
-  const auto digest = sha.finish();
-  std::ostringstream out;
-  out << std::hex << std::setfill('0');
-  for (auto byte : digest) out << std::setw(2) << static_cast<unsigned>(byte);
-  return out.str();
+  return sha256_bytes(canonical_trace_bytes(ops));
 }
 
 TraceCounts trace_counts(const std::vector<TraceOp>& ops) {

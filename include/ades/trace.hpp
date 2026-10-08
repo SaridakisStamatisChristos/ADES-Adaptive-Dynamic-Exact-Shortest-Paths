@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace ades {
@@ -34,6 +35,11 @@ struct TraceCounts {
   std::size_t increase_count{0};
   std::size_t decrease_count{0};
 };
+
+// Publication-facing SHA-256 helpers. file_sha256 hashes the exact file bytes,
+// including compressed graph bytes where the source graph is a .gz file.
+std::string sha256_bytes(std::string_view bytes);
+std::string file_sha256(const std::string& path);
 
 // Canonical operation stream used for cryptographic identity:
 //   QUERY source target\n
