@@ -1,0 +1,47 @@
+name: ADES comparator qualification gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate comparator registry syntax
+        run: python3 -m py_compile tools/validate_comparator_registry.py
+      - name: Validate qualification rules
+        run: |
+          mkdir -p results/comparator-qualification
+          python3 tools/validate_comparator_registry.py \
+            --registry benchmarks/comparators/registry.json \
+            --output results/comparator-qualification/SUMMARY.json
+      - name: Verify PR48 current scientific status
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          summary = json.loads(Path("results/comparator-qualification/SUMMARY.json").read_text())
+          assert summary["status"] == "PASS"
+          assert summary["reviewed_external_comparators"] >= 4
+          assert summary["pending_external_comparators"]
+          assert summary["context_external_comparators"]
+          assert summary["pinned_external_implementations"]
+          assert summary["headline_sota_ready"] == bool(summary["direct_external_comparators"])
+          # PR48 intentionally finds no fully qualified external comparator yet.
+          # A future promotion PR must update this acceptance assertion only after
+          # it supplies the adapter/oracle/memory/timing evidence required by DIRECT.
+          assert summary["direct_external_comparators"] == []
+          assert summary["headline_sota_ready"] is False
+          assert summary["headline_sota_blocker"]
+          PY
+      - name: Upload qualification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-comparator-qualification-pr48
+          path: results/comparator-qualification
+          if-no-files-found: error
