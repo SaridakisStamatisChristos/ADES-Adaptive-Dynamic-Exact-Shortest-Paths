@@ -27,6 +27,10 @@ add_executable(ades_telemetry_tests tests/telemetry.cpp)
 target_link_libraries(ades_telemetry_tests PRIVATE ades)
 add_test(NAME ades_telemetry_tests COMMAND ades_telemetry_tests)
 
+add_executable(ades_ablation_tests tests/ablations.cpp)
+target_link_libraries(ades_ablation_tests PRIVATE ades)
+add_test(NAME ades_ablation_tests COMMAND ades_ablation_tests)
+
 add_executable(ades_bench benchmarks/runner.cpp)
 target_link_libraries(ades_bench PRIVATE ades)
 
@@ -41,3 +45,6 @@ target_link_libraries(ades_controller_workload PRIVATE ades)
 
 add_executable(ades_phase benchmarks/phase_diagram.cpp)
 target_link_libraries(ades_phase PRIVATE ades)
+
+add_executable(ades_scientific_ablations benchmarks/scientific_ablations.cpp)
+target_link_libraries(ades_scientific_ablations PRIVATE ades)
