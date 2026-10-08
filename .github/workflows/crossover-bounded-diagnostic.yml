@@ -1,0 +1,101 @@
+name: ADES bounded crossover diagnostics
+on:
+  workflow_dispatch:
+    inputs:
+      max_cells:
+        description: 'Bounded cells to execute (1, 10, or 100)'
+        required: true
+        type: choice
+        options:
+          - '1'
+          - '10'
+          - '100'
+        default: '1'
+      queries:
+        description: 'Queries per cell'
+        required: true
+        default: '10'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Verify NY corpus
+        run: bash tools/verify_ny_dimacs.sh benchmarks/data
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+      - name: Run bounded diagnostic cells
+        shell: bash
+        env:
+          MAX_CELLS: ${{ inputs.max_cells }}
+          QUERIES: ${{ inputs.queries }}
+        run: |
+          set -euo pipefail
+          [[ "$MAX_CELLS" =~ ^(1|10|100)$ ]]
+          [[ "$QUERIES" =~ ^[1-9][0-9]*$ ]]
+          mkdir -p results/crossover-diagnostic
+          out=results/crossover-diagnostic
+          printf 'cell,baseline,family,seed,queries,update_every,hot_sources,start_utc,end_utc,elapsed_seconds,max_rss_kb,exit_code\n' > "$out/diagnostic-metrics.csv"
+          printf 'DIAGNOSTIC ONLY — not scientific crossover evidence.\n' > "$out/README.txt"
+          graph=benchmarks/data/USA-road-d.NY.gr.gz
+          cell=0
+          # Match the production runner's loop ordering; stop at the requested boundary.
+          for seed in 7 17 29 43 71; do
+            for family in uniform zipf single-hot rotating-hot hot-pool churn; do
+              for ue in 0 1000 200 50 10; do
+                for hs in 1 2 4 8 16 32; do
+                  for b in B1 B2 B3 B4; do
+                    cell=$((cell + 1))
+                    start=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+                    echo "::group::Cell $cell/$MAX_CELLS $b $family seed=$seed ue=$ue hs=$hs started=$start"
+                    set +e
+                    /usr/bin/time -f '%e,%M' -o "$out/time-$cell.txt" \
+                      ./build/ades_phase "$graph" "$b" "$family" "$QUERIES" "$ue" "$hs" 250 "$seed" 8 \
+                      > "$out/cell-$cell.csv" 2> "$out/stderr-$cell.txt"
+                    rc=$?
+                    set -e
+                    end=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+                    elapsed=NA
+                    rss=NA
+                    if [[ -s "$out/time-$cell.txt" ]]; then
+                      last=$(tail -n 1 "$out/time-$cell.txt")
+                      if [[ "$last" =~ ^[0-9]+([.][0-9]+)?,[0-9]+$ ]]; then
+                        IFS=, read -r elapsed rss <<< "$last"
+                      fi
+                    fi
+                    printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+                      "$cell" "$b" "$family" "$seed" "$QUERIES" "$ue" "$hs" "$start" "$end" "$elapsed" "$rss" "$rc" \
+                      >> "$out/diagnostic-metrics.csv"
+                    echo "Cell $cell/$MAX_CELLS finished=$end exit=$rc elapsed_s=$elapsed peak_rss_kb=$rss"
+                    echo "::endgroup::"
+                    if (( rc != 0 )); then
+                      echo "::error::Diagnostic cell $cell failed with exit $rc"
+                      exit "$rc"
+                    fi
+                    if (( cell >= MAX_CELLS )); then
+                      echo "Completed $cell bounded diagnostic cells"
+                      exit 0
+                    fi
+                  done
+                done
+              done
+            done
+          done
+      - name: Upload diagnostic data (including failed cells)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-bounded-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: results/crossover-diagnostic/
+          if-no-files-found: warn
+          retention-days: 30
