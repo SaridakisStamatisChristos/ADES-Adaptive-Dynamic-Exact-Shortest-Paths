@@ -1,0 +1,45 @@
+name: ADES scientific ablation gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ablations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Verify New York graph
+        run: bash tools/verify_ny_dimacs.sh benchmarks/data
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+      - name: Run matched scientific ablations
+        run: |
+          set -euo pipefail
+          mkdir -p results/scientific-ablations
+          ./build/ades_scientific_ablations \
+            benchmarks/data/USA-road-d.NY.gr.gz \
+            single-hot 48 8 2 12 17 4 alternating \
+            > results/scientific-ablations/rows.csv \
+            2> results/scientific-ablations/stderr.log
+          test "$(wc -l < results/scientific-ablations/rows.csv)" -eq 6
+      - name: Validate profiles, trace parity and telemetry
+        run: |
+          python3 tools/validate_scientific_ablations.py \
+            --input results/scientific-ablations/rows.csv \
+            --output results/scientific-ablations/SUMMARY.json
+      - name: Upload ablation evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-scientific-ablations-pr45
+          path: results/scientific-ablations
+          if-no-files-found: error
