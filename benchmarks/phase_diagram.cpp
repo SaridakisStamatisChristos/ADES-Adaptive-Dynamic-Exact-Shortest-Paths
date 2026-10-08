@@ -7,6 +7,9 @@
 #include <cstdlib>
 #include <iostream>
 #include <random>
+#include <unordered_set>
+#include <limits>
+#include <stdexcept>
 #include <string>
 #include <vector>
 using namespace ades; using Clock=std::chrono::steady_clock;
@@ -35,7 +38,31 @@ struct B1{Graph g;Distance query(std::uint32_t s,std::uint32_t t){return bidirec
 int main(int argc,char**argv){
  if(argc<9){std::cerr<<"usage: ades_phase graph B1|B2|B3|B4|ALL family queries update_every hot_sources epoch seed [cap]\\n";return 2;}
  auto g=Graph::load_dimacs_gr_gz(argv[1]);std::string base=argv[2],family=argv[3];auto nq=std::strtoull(argv[4],0,10),ue=std::strtoull(argv[5],0,10),hs=std::strtoull(argv[6],0,10),ep=std::strtoull(argv[7],0,10);std::uint64_t seed=std::strtoull(argv[8],0,10);std::size_t cap=argc>9?std::strtoull(argv[9],0,10):8;
- auto ops=make_trace(g,family,seed,nq,ue,hs,ep);auto ref=oracle(g,ops);
+ auto ops=make_trace(g,family,seed,nq,ue,hs,ep);
+ // A conservative, allocation-free preflight for the unbounded resident baselines.
+ // It counts unique query sources, not queries; it does not alter trace semantics.
+ std::unordered_set<std::uint32_t> distinct;
+ for(const auto& op:ops)if(!op.update)distinct.insert(op.a);
+ const std::uint64_t per_vertex=sizeof(Distance)+4*sizeof(std::int64_t)+sizeof(std::uint32_t);
+ const auto n=static_cast<std::uint64_t>(g.vertex_count());
+ const auto sources=static_cast<std::uint64_t>(distinct.size());
+ const bool overflow=n && (sources>std::numeric_limits<std::uint64_t>::max()/n ||
+     (sources*n)>std::numeric_limits<std::uint64_t>::max()/per_vertex);
+ const std::uint64_t resident_bytes=overflow?std::numeric_limits<std::uint64_t>::max():sources*n*per_vertex;
+ std::cerr<<"MEMORY_PREFLIGHT baseline="<<base<<" vertices="<<n
+          <<" distinct_sources="<<sources<<" resident_state_payload_bytes="<<resident_bytes
+          <<" estimate_type=lower_bound_excludes_graph_containers_allocator_and_temporaries\\n";
+ if(const char* raw=std::getenv("ADES_MAX_RESIDENT_BYTES");raw && *raw && (base=="B2"||base=="B3"||base=="ALL")){
+   std::string limit(raw);std::size_t pos=0;std::uint64_t budget=0;
+   try{budget=std::stoull(limit,&pos);}catch(const std::exception&){std::cerr<<"invalid ADES_MAX_RESIDENT_BYTES\\n";return 2;}
+   if(pos!=limit.size()||!budget){std::cerr<<"invalid ADES_MAX_RESIDENT_BYTES\\n";return 2;}
+   std::cerr<<"MEMORY_PREFLIGHT budget_bytes="<<budget<<"\\n";
+   if(overflow||resident_bytes>budget){
+     std::cerr<<"MEMORY_PREFLIGHT REJECT: resident payload lower bound exceeds budget; no baseline executed\\n";
+     return 4;
+   }
+ }
+ auto ref=oracle(g,ops);
  std::size_t updates=0;for(auto&o:ops)updates+=o.update;
  auto emit=[&](const std::string& b,std::uint64_t ns,const Stats& st){
   std::cout<<b<<","<<family<<","<<seed<<","<<nq<<","<<updates<<","<<ue<<","<<hs<<","<<ep<<","<<cap<<","<<ns<<","<<st.cold_queries<<","<<st.resident_queries<<","<<st.promotions<<","<<st.evictions<<","<<st.rebuilds<<","<<st.repair_aborts<<"\n";
