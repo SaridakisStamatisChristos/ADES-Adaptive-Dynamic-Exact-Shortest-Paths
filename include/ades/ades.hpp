@@ -6,14 +6,32 @@
 #include <unordered_map>
 namespace ades {
 enum class RepairPolicy { Fixed, VertexOnly, WorkAware };
+enum class AdmissionPolicy { Disabled, Frequency, WorkAware };
+enum class EvictionPolicy { LRU, DebtAware };
+enum class MaintenancePolicy { FullRebuild, LocalRepair };
+enum class ScientificAblation {
+ Cold,
+ FreqLruRebuild,
+ FreqLruRepair,
+ WorkLruRepair,
+ WorkDebtRepair,
+ FullADES,
+};
 struct Config {
  std::size_t resident_cap=4; std::uint32_t probation_queries=4; double promotion_ratio=1.05;
  std::uint64_t cooldown_queries=32; double eviction_update_penalty=4.0; double admission_hysteresis=1.10;
  RepairBudget repair_safety_ceiling{1u<<20,1u<<22}; RepairPolicy repair_policy=RepairPolicy::WorkAware;
+ AdmissionPolicy admission_policy=AdmissionPolicy::WorkAware;
+ EvictionPolicy eviction_policy=EvictionPolicy::DebtAware;
+ MaintenancePolicy maintenance_policy=MaintenancePolicy::LocalRepair;
+ bool admission_hysteresis_enabled=true;
+ bool cooldown_enabled=true;
  // Zero preserves legacy source-count-only behavior. Nonzero enables the PR43
  // common logical persistent-state byte budget in addition to resident_cap.
  std::uint64_t persistent_state_budget_bytes=0;
 };
+Config config_for_scientific_ablation(ScientificAblation profile,Config base={});
+const char* scientific_ablation_name(ScientificAblation profile) noexcept;
 struct Stats {
  std::uint64_t cold_queries=0,resident_queries=0,promotions=0,evictions=0,cooldown_blocks=0,rebuilds=0,
  admission_rejections=0,filtered_updates=0,decrease_repairs=0,increase_repairs=0,repair_aborts=0,
@@ -42,6 +60,7 @@ public:
  void update(std::uint32_t edge_id,Weight new_weight);
  const Graph& graph()const{return graph_;}
  const Stats& stats()const{return stats_;}
+ const Config& config()const noexcept{return cfg_;}
  bool resident(std::uint32_t s)const{return residents_.contains(s);}
  std::size_t resident_count()const{return residents_.size();}
  std::uint64_t persistent_state_budget_bytes()const noexcept{return cfg_.persistent_state_budget_bytes;}
