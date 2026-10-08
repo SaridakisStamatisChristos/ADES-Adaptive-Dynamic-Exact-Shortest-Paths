@@ -1,0 +1,23 @@
+{
+  "utc_started": "2026-10-08T12:32:48.536011+00:00",
+  "git_commit": "c7f42aeb78e123f0a2cb161e7881896cc5d305c8",
+  "graph_sha256": "7b2446c7ffe6179efbc42af6812448e8cb782f12968ca2bb1d50d979343056d4",
+  "graph": "/home/runner/work/ADES-Adaptive-Dynamic-Exact-Shortest-Paths/ADES-Adaptive-Dynamic-Exact-Shortest-Paths/benchmarks/data/USA-road-d.NY.gr.gz",
+  "binary": "/home/runner/work/ADES-Adaptive-Dynamic-Exact-Shortest-Paths/ADES-Adaptive-Dynamic-Exact-Shortest-Paths/build/ades_phase",
+  "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+  "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+  "runner": "GitHub Actions 1000022981",
+  "config": {
+    "queries": 10,
+    "repeats": 2,
+    "caps": [2, 8],
+    "seeds": [7, 17],
+    "families": ["uniform", "single-hot"],
+    "update_every": [0, 10],
+    "hot_sources": 4,
+    "epoch": 250,
+    "timeout": 180
+  },
+  "comparison_class": "matched-source-cap; NOT equal-RSS",
+  "evidence_class": "diagnostic; no SOTA or speedup claim"
+}
