@@ -43,7 +43,7 @@ int main(){
   require(t.reconciles(),"timing components do not reconcile");
   require(t.query_time_ns==t.query_components_ns(),"query timing conservation failed");
   require(t.update_time_ns==t.update_components_ns(),"update timing conservation failed");
-  require(t.total_time_ns==t.query_time_ns+t.update_time_ns,"total timing identity failed");
+  require(t.total_time_ns()==t.query_time_ns+t.update_time_ns,"total timing identity failed");
   require(t.cold_query_ns<=t.query_time_ns,"cold timing exceeds query domain");
   require(t.resident_query_ns<=t.query_time_ns,"resident timing exceeds query domain");
   require(t.promotion_ns<=t.query_time_ns,"promotion timing exceeds query domain");
