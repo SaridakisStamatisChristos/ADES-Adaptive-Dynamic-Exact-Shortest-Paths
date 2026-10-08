@@ -14,7 +14,8 @@ jobs:
             benchmarks/summarize_results.py \
             tools/phase_schema.py \
             tools/memory_crossover.py \
-            tools/equal_byte_crossover.py
+            tools/equal_byte_crossover.py \
+            tools/validate_scientific_ablations.py
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build build -j2
       - run: ctest --test-dir build --output-on-failure
