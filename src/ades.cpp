@@ -9,6 +9,59 @@ namespace ades {
 using Clock=std::chrono::steady_clock;
 static std::uint64_t ns_since(Clock::time_point t){return std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now()-t).count();}
 
+Config config_for_scientific_ablation(ScientificAblation profile,Config base){
+ base.admission_hysteresis_enabled=false;
+ base.cooldown_enabled=false;
+ switch(profile){
+  case ScientificAblation::Cold:
+   base.resident_cap=0;
+   base.admission_policy=AdmissionPolicy::Disabled;
+   base.eviction_policy=EvictionPolicy::LRU;
+   base.maintenance_policy=MaintenancePolicy::FullRebuild;
+   break;
+  case ScientificAblation::FreqLruRebuild:
+   base.admission_policy=AdmissionPolicy::Frequency;
+   base.eviction_policy=EvictionPolicy::LRU;
+   base.maintenance_policy=MaintenancePolicy::FullRebuild;
+   break;
+  case ScientificAblation::FreqLruRepair:
+   base.admission_policy=AdmissionPolicy::Frequency;
+   base.eviction_policy=EvictionPolicy::LRU;
+   base.maintenance_policy=MaintenancePolicy::LocalRepair;
+   break;
+  case ScientificAblation::WorkLruRepair:
+   base.admission_policy=AdmissionPolicy::WorkAware;
+   base.eviction_policy=EvictionPolicy::LRU;
+   base.maintenance_policy=MaintenancePolicy::LocalRepair;
+   break;
+  case ScientificAblation::WorkDebtRepair:
+   base.admission_policy=AdmissionPolicy::WorkAware;
+   base.eviction_policy=EvictionPolicy::DebtAware;
+   base.maintenance_policy=MaintenancePolicy::LocalRepair;
+   break;
+  case ScientificAblation::FullADES:
+   base.admission_policy=AdmissionPolicy::WorkAware;
+   base.eviction_policy=EvictionPolicy::DebtAware;
+   base.maintenance_policy=MaintenancePolicy::LocalRepair;
+   base.admission_hysteresis_enabled=true;
+   base.cooldown_enabled=true;
+   break;
+ }
+ return base;
+}
+
+const char* scientific_ablation_name(ScientificAblation profile) noexcept{
+ switch(profile){
+  case ScientificAblation::Cold:return "COLD";
+  case ScientificAblation::FreqLruRebuild:return "FREQ-LRU-REBUILD";
+  case ScientificAblation::FreqLruRepair:return "FREQ-LRU-REPAIR";
+  case ScientificAblation::WorkLruRepair:return "WORK-LRU-REPAIR";
+  case ScientificAblation::WorkDebtRepair:return "WORK-DEBT-REPAIR";
+  case ScientificAblation::FullADES:return "B4";
+ }
+ return "UNKNOWN";
+}
+
 double ADES::resident_score(const Entry&e)const{
  const auto age=query_clock_>=e.last_query?query_clock_-e.last_query:0;
  return double(e.hits)/(1.0+double(age)+cfg_.eviction_update_penalty*double(e.update_debt));
@@ -47,6 +100,10 @@ bool ADES::can_fit_accounted_bytes(std::uint64_t extra)const{
 }
 
 void ADES::prune_expired_cooldowns(){
+ if(!cfg_.cooldown_enabled){
+  if(!cooldown_until_.empty()){cooldown_until_.clear();refresh_accounted_memory();}
+  return;
+ }
  bool changed=false;
  for(auto it=cooldown_until_.begin();it!=cooldown_until_.end();){
   if(query_clock_>=it->second){it=cooldown_until_.erase(it);changed=true;}
@@ -86,7 +143,10 @@ bool ADES::reclaim_nonresident_metadata_for(std::uint64_t required_bytes){
 
 bool ADES::admit(std::uint32_t source,double candidate_score){
  if(residents_.contains(source))return true;
- if(auto c=cooldown_until_.find(source);c!=cooldown_until_.end()&&query_clock_<c->second){stats_.cooldown_blocks++;return false;}
+ if(cfg_.admission_policy==AdmissionPolicy::Disabled)return false;
+ if(cfg_.cooldown_enabled){
+  if(auto c=cooldown_until_.find(source);c!=cooldown_until_.end()&&query_clock_<c->second){stats_.cooldown_blocks++;return false;}
+ }
  if(cfg_.resident_cap==0)return false;
 
  const auto candidate_bytes=ades_resident_entry_accounted_bytes_for_vertices(graph_.vertex_count());
@@ -97,13 +157,19 @@ bool ADES::admit(std::uint32_t source,double candidate_score){
   stats_.memory_budget_rejections++;return false;
  }
 
- struct Victim{std::uint32_t source;double score;std::uint64_t bytes;};
+ struct Victim{std::uint32_t source;double score;std::uint64_t bytes;std::uint64_t last_query;};
  std::vector<Victim> candidates;candidates.reserve(residents_.size());
  for(const auto& [s,e]:residents_)
-  candidates.push_back({s,resident_score(e),ades_resident_entry_accounted_bytes(e.s)});
- std::sort(candidates.begin(),candidates.end(),[](const Victim&a,const Victim&b){
-  return a.score<b.score||(a.score==b.score&&a.source<b.source);
- });
+  candidates.push_back({s,resident_score(e),ades_resident_entry_accounted_bytes(e.s),e.last_query});
+ if(cfg_.eviction_policy==EvictionPolicy::LRU){
+  std::sort(candidates.begin(),candidates.end(),[](const Victim&a,const Victim&b){
+   return a.last_query<b.last_query||(a.last_query==b.last_query&&a.source<b.source);
+  });
+ }else{
+  std::sort(candidates.begin(),candidates.end(),[](const Victim&a,const Victim&b){
+   return a.score<b.score||(a.score==b.score&&a.source<b.source);
+  });
+ }
 
  auto simulated=accounted_algorithm_state_bytes_impl();
  auto simulated_count=residents_.size();
@@ -117,7 +183,9 @@ bool ADES::admit(std::uint32_t source,double candidate_score){
  while(needs_eviction()){
   if(next>=candidates.size()){stats_.memory_budget_rejections++;return false;}
   const auto& victim=candidates[next++];
-  if(candidate_score<cfg_.admission_hysteresis*victim.score){stats_.admission_rejections++;return false;}
+  if(cfg_.admission_hysteresis_enabled&&candidate_score<cfg_.admission_hysteresis*victim.score){
+   stats_.admission_rejections++;return false;
+  }
   simulated-=victim.bytes;--simulated_count;victims.push_back(victim.source);
  }
 
@@ -127,19 +195,17 @@ bool ADES::admit(std::uint32_t source,double candidate_score){
   stats_.timing.eviction_ns+=ns_since(t);
  }
 
- // Promotion build/insert is query-side work. It is deliberately distinct from
- // repair-abort rebuild timing so publication telemetry never double counts it.
  auto promotion_start=Clock::now();
  auto state=dijkstra(graph_,source);
  const auto build_ns=ns_since(promotion_start);
  if(ades_resident_entry_accounted_bytes(state)!=candidate_bytes)
   throw std::logic_error("unexpected SSSP accounting shape");
  Entry e;e.s=std::move(state);e.hits=std::max<std::uint64_t>(1,(std::uint64_t)candidate_score);e.last_query=query_clock_;
- e.controller.observe_rebuild(build_ns);
+ if(cfg_.maintenance_policy==MaintenancePolicy::LocalRepair)e.controller.observe_rebuild(build_ns);
  residents_.emplace(source,std::move(e));stats_.rebuilds++;stats_.promotions++;refresh_accounted_memory();
  stats_.timing.promotion_ns+=ns_since(promotion_start);
 
- if(!victims.empty()){
+ if(cfg_.cooldown_enabled&&!victims.empty()&&cfg_.cooldown_queries){
   auto t=Clock::now();
   for(auto victim:victims){
    auto existing=cooldown_until_.find(victim);
@@ -184,6 +250,8 @@ Distance ADES::query(std::uint32_t s,std::uint32_t t){
  auto cold_start=Clock::now();
  auto cold=bidirectional_dijkstra_profiled(graph_,s,t);
  stats_.timing.cold_query_ns+=ns_since(cold_start);
+ if(cfg_.admission_policy==AdmissionPolicy::Disabled)return finish_cold(cold.distance);
+
  auto pit=probation_.find(s);
  if(pit==probation_.end()){
   if(!can_fit_accounted_bytes(ades_probation_entry_accounted_bytes())){
@@ -191,8 +259,12 @@ Distance ADES::query(std::uint32_t s,std::uint32_t t){
   }
   pit=probation_.emplace(s,Probation{}).first;refresh_accounted_memory();
  }
- auto&p=pit->second;p.queries++;p.edge_scans+=cold.edge_scans;const double build_work=double(graph_.edge_count());
- if(p.queries>=cfg_.probation_queries&&double(p.edge_scans)>=cfg_.promotion_ratio*build_work){
+ auto&p=pit->second;p.queries++;
+ if(cfg_.admission_policy==AdmissionPolicy::WorkAware)p.edge_scans+=cold.edge_scans;
+ const bool frequency_ready=p.queries>=cfg_.probation_queries;
+ const bool work_ready=cfg_.admission_policy==AdmissionPolicy::Frequency||
+                       double(p.edge_scans)>=cfg_.promotion_ratio*double(graph_.edge_count());
+ if(frequency_ready&&work_ready){
   const double candidate_score=double(p.queries);
   probation_.erase(pit);refresh_accounted_memory();
   (void)admit(s,candidate_score);
@@ -223,7 +295,15 @@ void ADES::update(std::uint32_t id,Weight nw){
  if(old.weight==nw){finish_update();return;}
  auto graph_start=Clock::now();graph_.update_weight(id,nw);stats_.timing.graph_update_ns+=ns_since(graph_start);
  for(auto&kv:residents_){
-  auto&entry=kv.second;entry.update_debt++;auto&st=entry.s;RepairResult r;std::size_t discovered=0;RepairWork work{};
+  auto&entry=kv.second;
+  if(cfg_.eviction_policy==EvictionPolicy::DebtAware)entry.update_debt++;
+  auto&st=entry.s;
+  if(cfg_.maintenance_policy==MaintenancePolicy::FullRebuild){
+   auto rebuild_start=Clock::now();st=dijkstra(graph_,st.source);stats_.timing.rebuild_ns+=ns_since(rebuild_start);stats_.rebuilds++;
+   continue;
+  }
+
+  RepairResult r;std::size_t discovered=0;RepairWork work{};
   if(nw<old.weight){
    auto t=Clock::now();r=repair_decrease(graph_,st,id);stats_.timing.decrease_repair_ns+=ns_since(t);
   }else{
