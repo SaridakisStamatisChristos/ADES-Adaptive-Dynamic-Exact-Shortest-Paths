@@ -65,20 +65,6 @@ int main(){
    require(a.accounted_algorithm_state_bytes()<=ades_budget,"ADES current bytes exceeded budget");
    require(a.query(1,5)==exact(g,1,5),"ADES byte-budget churn query not exact");
    require(a.resident_count()==1,"ADES byte budget should retain one resident state");
-   require(a.stats().evictions() == 0, "unreachable");
-  }
-
-  // Re-run with inspectable stats; the second source must be able to replace
-  // the first while preserving the hard byte ceiling.
-  {
-   Config cfg;
-   cfg.resident_cap=99;
-   cfg.probation_queries=1;
-   cfg.promotion_ratio=0.0;
-   cfg.persistent_state_budget_bytes=ades_budget;
-   ADES a(g,cfg);
-   (void)a.query(0,5);
-   (void)a.query(1,5);
    require(a.stats().evictions>=1,"ADES byte pressure did not evict a resident");
    require(a.accounted_algorithm_state_bytes()<=ades_budget,"ADES bytes exceeded after replacement");
    require(a.peak_accounted_algorithm_state_bytes()<=ades_budget,"ADES peak accounted bytes exceeded budget");
