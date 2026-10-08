@@ -1,0 +1,82 @@
+name: ADES dataset registry gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  registry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Verify committed NY corpus
+        run: bash tools/verify_ny_dimacs.sh benchmarks/data
+      - name: Validate Python tooling
+        run: |
+          python3 -m py_compile \
+            tools/generate_synthetic_graphs.py \
+            tools/validate_dataset_registry.py
+      - name: Generate synthetic registry graphs
+        run: |
+          set -euo pipefail
+          mkdir -p results/dataset-registry/generated results/dataset-registry/smoke
+          python3 tools/generate_synthetic_graphs.py results/dataset-registry/generated
+      - name: Validate hashes, counts, provenance and diversity
+        run: |
+          python3 tools/validate_dataset_registry.py \
+            --registry benchmarks/datasets/registry.json \
+            --repo-root . \
+            --generated-dir results/dataset-registry/generated \
+            --summary results/dataset-registry/SUMMARY.json
+          sha256sum results/dataset-registry/generated/*.gr \
+            > results/dataset-registry/SHA256SUMS
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+      - name: Smoke-load every non-road topology through Workload Generator v2
+        run: |
+          set -euo pipefail
+          for graph in results/dataset-registry/generated/*.gr; do
+            id="$(basename "$graph" .gr)"
+            ./build/ades_workload_v2 "$graph" \
+              "results/dataset-registry/smoke/${id}.trace" \
+              "results/dataset-registry/smoke/${id}.json" \
+              47 24 uniform 5 strict-alternating small 4 8 0 4
+          done
+      - name: Verify smoke metadata
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          registry = json.loads(Path("benchmarks/datasets/registry.json").read_text())
+          expected = {d["id"]: d for d in registry["datasets"] if d["kind"] == "generated"}
+          smoke = Path("results/dataset-registry/smoke")
+          seen = set()
+          for path in smoke.glob("*.json"):
+              data = json.loads(path.read_text())
+              graph_id = path.stem
+              assert graph_id in expected, graph_id
+              assert data["graph_sha256"] == expected[graph_id]["sha256"]
+              assert data["query_count"] == 24
+              assert data["update_count"] == (24 - 1) // 5
+              seen.add(graph_id)
+          assert seen == set(expected), (seen, set(expected))
+          PY
+      - name: Upload registry evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-dataset-registry-pr47
+          path: |
+            results/dataset-registry/SUMMARY.json
+            results/dataset-registry/SHA256SUMS
+            results/dataset-registry/smoke/*.json
+          if-no-files-found: error
