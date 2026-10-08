@@ -20,11 +20,42 @@ The publication contract controls scientific scope, claim boundaries, metric mea
 
 Trace generation and oracle construction occur before the timed baseline section. A baseline that disagrees with the oracle exits with failure; its performance number is invalid.
 
+## Canonical trace identity and replay
+
+Publication-facing traces use one canonical textual operation grammar:
+
+```text
+QUERY source target
+UPDATE edge_id old_weight new_weight
+```
+
+Each record is terminated by `\n`; integers are unsigned decimal without decoration. The SHA-256 digest is computed over the complete canonical operation byte stream, in execution order.
+
+Every execution records:
+
+```text
+trace_sha256
+query_count
+update_count
+increase_count
+decrease_count
+```
+
+Equal-weight updates count toward `update_count` but neither direction count.
+
+Before execution, the trace validator replays updates against a copy of the initial graph and requires every recorded `old_weight` to equal the graph state produced by all preceding operations. Out-of-range vertices/edges, malformed records, inconsistent old weights, or trace SHA mismatches invalidate the run.
+
+`run_matrix.sh` generates one canonical trace once, writes it to a temporary replay file, and passes the same file to each isolated B0–B4 process through `ADES_TRACE_FILE`. Each process independently regenerates the expected deterministic trace, reloads the canonical replay file, validates it against the graph, and fails if the two SHA-256 digests differ. The reusable oracle bundle separately stores the same trace identity plus exact query answers and is rejected if its SHA differs from the replayed operation stream.
+
+The phase/bounded-comparator runner reports the same canonical SHA-256 and operation counts for B1/B2/B3/B4/B2L/B3L. Controller-policy ablations likewise report SHA-256 identity and counts for fixed, vertex-only, and work-aware policies. Analysis tooling must reject a matched cell if comparator rows disagree on trace identity or operation counts.
+
+The old 64-bit engineering fingerprint remains present only in archived pre-PR42 evidence. It is not sufficient trace identity for new publication-facing experiments.
+
 ## Reproducibility metadata
 
-The run_matrix script records UTC time, commit SHA, OS/kernel, CPU model, total RAM, compiler, CMake version, build type, declared thread count, graph path, seed, operation count, repetition, query count, elapsed nanoseconds, per-process peak RSS, and the material B4 configuration.
+The run_matrix script records UTC time, commit SHA, OS/kernel, CPU model, total RAM, compiler, CMake version, build type, declared thread count, graph path, seed, operation count, repetition, query/update counts, update-direction counts, trace SHA-256, elapsed nanoseconds, per-process peak RSS, and the material B4 configuration.
 
-Every timed B0–B4 measurement runs in a separate process. Baseline order rotates deterministically by repetition to reduce systematic thermal/frequency order bias. Each generated operation trace carries a stable 64-bit fingerprint; B0–B4 rows for the same seed/workload must report the same fingerprint. `run_matrix.sh` records `/usr/bin/time` peak RSS for that process, preventing both RSS and allocator/cache state from contaminating later baselines. Oracle construction occurs inside the process but outside the timed engine section.
+Every timed B0–B4 measurement runs in a separate process. Baseline order rotates deterministically by repetition to reduce systematic thermal/frequency order bias. `run_matrix.sh` records `/usr/bin/time` peak RSS for that process, preventing both RSS and allocator/cache state from contaminating later baselines. Trace generation and oracle construction occur outside the timed engine section.
 
 ## Required workload families
 
@@ -32,13 +63,11 @@ Seeded mixed synthetic traces; NY DIMACS distance and travel-time road graphs; t
 
 Performance claims require repetitions and distribution statistics. Exactness failure invalidates the corresponding performance run.
 
-
 ## Repair-controller ablation
 
 Controller evaluation must report, for each selected-parent increase repair, the measured discovery vertices, SPT tree edges, incoming-boundary scans, restricted-subgraph scans, and priority-queue pops. The work-aware policy learns full rebuild time, repair nanoseconds per aggregate work unit, aggregate work expansion per discovered vertex, and SPT-tree-edge expansion per discovered vertex. The legacy vertex-only ablation learns repair nanoseconds per discovered vertex and ignores the other repair-work dimensions. The discovery budget is derived from the predicted total repair cost relative to `gamma * rebuild_cost`, then clamped by independent hard vertex/tree-edge ceilings.
 
 Ablations must compare at least: `fixed` discovery ceiling, legacy `vertex`-only calibration, and `work`-aware calibration through the same ADES code path. Reports must include cold/resident queries, promotions, rebuilds, filtered updates, decrease/increase repairs, repair aborts, elapsed time, and peak RSS. Random-source traces are not sufficient controller evidence when they produce few resident repairs; controller claims require a resident-hot/update-targeted workload that actually exercises selected-parent increase repair. Catastrophic-cut experiments must demonstrate early abort before state mutation; small-cut experiments must demonstrate that profitable repairs are not systematically forced into rebuilds. Controller decisions affect performance only: every abort falls back to exact full Dijkstra.
-
 
 ### Resident-targeted controller workload
 

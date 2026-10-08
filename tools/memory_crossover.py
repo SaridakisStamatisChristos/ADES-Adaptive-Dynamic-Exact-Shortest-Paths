@@ -14,11 +14,15 @@ import sys
 import time
 
 BASELINES = ("B2L", "B3L", "B4")
-PHASE_FIELDS = ("baseline", "family", "seed", "queries", "updates", "update_every",
-                "hot_sources", "epoch", "cap", "algorithm_ns", "cold_queries",
-                "resident_queries", "promotions", "evictions", "rebuilds", "repair_aborts")
+PHASE_FIELDS = (
+    "baseline", "family", "seed", "trace_sha256", "queries", "updates",
+    "increase_count", "decrease_count", "update_every", "hot_sources", "epoch",
+    "cap", "algorithm_ns", "cold_queries", "resident_queries", "promotions",
+    "evictions", "rebuilds", "repair_aborts",
+)
 TRACE_RE = re.compile(
-    r"TRACE_UPDATES mode=(\w+) total=(\d+) increases=(\d+) decreases=(\d+) unchanged=(\d+)"
+    r"TRACE_IDENTITY sha256=([0-9a-f]{64}) queries=(\d+) updates=(\d+) "
+    r"increases=(\d+) decreases=(\d+) unchanged=(\d+) mode=(\w+)"
 )
 
 
@@ -59,11 +63,11 @@ def main():
     if not binary.is_file() or not graph.is_file():
         p.error("binary and graph must exist")
 
-    sha = hashlib.sha256(graph.read_bytes()).hexdigest()
+    graph_sha = hashlib.sha256(graph.read_bytes()).hexdigest()
     meta = dict(
         utc_started=dt.datetime.now(dt.timezone.utc).isoformat(),
         git_commit=os.environ.get("GITHUB_SHA", "local-unpinned"),
-        graph_sha256=sha,
+        graph_sha256=graph_sha,
         graph=str(graph),
         binary=str(binary),
         platform=platform.platform(),
@@ -72,18 +76,19 @@ def main():
         config={k: v for k, v in vars(args).items() if k not in ("binary", "graph", "output")},
         comparison_class="matched-source-cap; NOT equal-RSS",
         evidence_class="diagnostic; exact answers checked against independent Dijkstra oracle",
+        trace_identity="canonical operation stream SHA-256",
     )
     (out / "manifest.json").write_text(json.dumps(meta, indent=2) + "\n")
 
     fields = [
         "cell", "repeat", "order", "baseline", "family", "seed", "queries",
         "update_every", "update_mode", "hot_sources", "epoch", "cap", "start_utc",
-        "elapsed_wall_s", "peak_child_rss_kb", "exit_code", "updates",
+        "elapsed_wall_s", "peak_child_rss_kb", "exit_code", "trace_sha256", "updates",
         "increase_updates", "decrease_updates", "unchanged_updates", "algorithm_ns",
         "cold_queries", "resident_queries", "promotions", "evictions", "rebuilds",
         "repair_aborts",
     ]
-    phase_stats = PHASE_FIELDS[9:]
+    phase_stats = PHASE_FIELDS[12:]
     failed = False
     trace_signatures = {}
 
@@ -97,7 +102,6 @@ def main():
                     for ue in args.update_every:
                         cell += 1
                         for rep in range(args.repeats):
-                            # Rotate baseline order to reduce fixed-order bias.
                             rotation = (rep + cell - 1) % len(BASELINES)
                             order = BASELINES[rotation:] + BASELINES[:rotation]
                             for idx, baseline in enumerate(order):
@@ -136,8 +140,9 @@ def main():
                                     start_utc=started, elapsed_wall_s=f"{wall:.6f}",
                                     peak_child_rss_kb=(time_file.read_text().strip()
                                                        if time_file.is_file() else "NA"),
-                                    exit_code=rc, updates="NA", increase_updates="NA",
-                                    decrease_updates="NA", unchanged_updates="NA",
+                                    exit_code=rc, trace_sha256="NA", updates="NA",
+                                    increase_updates="NA", decrease_updates="NA",
+                                    unchanged_updates="NA",
                                     **{f: "NA" for f in phase_stats},
                                 )
 
@@ -146,8 +151,16 @@ def main():
                                     candidate = values[0].split(",")
                                     if len(candidate) == len(PHASE_FIELDS) and candidate[0] == baseline:
                                         parts = candidate
-                                        row.update(dict(zip(phase_stats, candidate[9:])))
-                                        row["updates"] = candidate[4]
+                                        parsed = dict(zip(PHASE_FIELDS, candidate))
+                                        row.update({f: parsed[f] for f in phase_stats})
+                                        row["trace_sha256"] = parsed["trace_sha256"]
+                                        row["updates"] = parsed["updates"]
+                                        row["increase_updates"] = parsed["increase_count"]
+                                        row["decrease_updates"] = parsed["decrease_count"]
+                                        row["unchanged_updates"] = str(
+                                            int(parsed["updates"]) - int(parsed["increase_count"])
+                                            - int(parsed["decrease_count"])
+                                        )
                                     else:
                                         rc = 98
                                 elif rc == 0:
@@ -157,18 +170,33 @@ def main():
                                 if rc == 0 and trace is None:
                                     rc = 97
                                 if trace is not None:
-                                    mode, total, inc, dec, unchanged = trace.groups()
-                                    signature = (mode, int(total), int(inc), int(dec), int(unchanged))
-                                    row.update(
-                                        updates=total,
-                                        increase_updates=inc,
-                                        decrease_updates=dec,
-                                        unchanged_updates=unchanged,
+                                    sha, queries, total, inc, dec, unchanged, mode = trace.groups()
+                                    signature = (
+                                        sha, int(queries), int(total), int(inc), int(dec),
+                                        int(unchanged), mode,
                                     )
+                                    if row["trace_sha256"] == "NA":
+                                        row.update(
+                                            trace_sha256=sha,
+                                            updates=total,
+                                            increase_updates=inc,
+                                            decrease_updates=dec,
+                                            unchanged_updates=unchanged,
+                                        )
                                     if rc == 0 and mode != args.update_mode:
                                         rc = 97
-                                    if rc == 0 and parts is not None and int(parts[4]) != int(total):
-                                        rc = 97
+                                    if rc == 0 and parts is not None:
+                                        parsed = dict(zip(PHASE_FIELDS, parts))
+                                        if parsed["trace_sha256"] != sha:
+                                            rc = 97
+                                        if int(parsed["queries"]) != int(queries):
+                                            rc = 97
+                                        if int(parsed["updates"]) != int(total):
+                                            rc = 97
+                                        if int(parsed["increase_count"]) != int(inc):
+                                            rc = 97
+                                        if int(parsed["decrease_count"]) != int(dec):
+                                            rc = 97
                                     expected = trace_signatures.setdefault(cell, signature)
                                     if rc == 0 and signature != expected:
                                         rc = 97
@@ -181,8 +209,8 @@ def main():
                                 stream.flush()
                                 print(
                                     f"{key} exit={rc} wall={wall:.3f}s "
-                                    f"updates={row['updates']} +{row['increase_updates']} "
-                                    f"-{row['decrease_updates']}",
+                                    f"sha={row['trace_sha256']} updates={row['updates']} "
+                                    f"+{row['increase_updates']} -{row['decrease_updates']}",
                                     flush=True,
                                 )
                                 if rc:
