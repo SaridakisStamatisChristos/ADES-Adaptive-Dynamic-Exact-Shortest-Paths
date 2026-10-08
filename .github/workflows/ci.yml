@@ -15,7 +15,9 @@ jobs:
             tools/phase_schema.py \
             tools/memory_crossover.py \
             tools/equal_byte_crossover.py \
-            tools/validate_scientific_ablations.py
+            tools/validate_scientific_ablations.py \
+            tools/generate_synthetic_graphs.py \
+            tools/validate_dataset_registry.py
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build build -j2
       - run: ctest --test-dir build --output-on-failure
