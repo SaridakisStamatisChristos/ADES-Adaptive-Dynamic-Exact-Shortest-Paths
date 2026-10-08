@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -22,6 +23,20 @@ static std::uint64_t parse_u64(const char* raw, const char* field) {
   }
   if (pos != value.size()) throw std::invalid_argument(std::string("invalid ") + field);
   return parsed;
+}
+
+static std::size_t parse_size(const char* raw, const char* field) {
+  const auto value = parse_u64(raw, field);
+  if (value > std::numeric_limits<std::size_t>::max())
+    throw std::invalid_argument(std::string(field) + " exceeds size_t range");
+  return static_cast<std::size_t>(value);
+}
+
+static std::uint32_t parse_u32(const char* raw, const char* field) {
+  const auto value = parse_u64(raw, field);
+  if (value > std::numeric_limits<std::uint32_t>::max())
+    throw std::invalid_argument(std::string(field) + " exceeds uint32 range");
+  return static_cast<std::uint32_t>(value);
 }
 
 static void write_metadata(const std::string& path,
@@ -83,15 +98,15 @@ int main(int argc, char** argv) {
     const auto seed = parse_u64(argv[4], "seed");
 
     WorkloadConfig config;
-    config.query_count = parse_u64(argv[5], "queries");
+    config.query_count = parse_size(argv[5], "queries");
     config.source_family = parse_source_family(argv[6]);
-    config.update_interval = parse_u64(argv[7], "update_interval");
+    config.update_interval = parse_size(argv[7], "update_interval");
     config.update_mode = parse_update_mode(argv[8]);
     config.magnitude = parse_perturbation_magnitude(argv[9]);
-    config.hot_sources = parse_u64(argv[10], "hot_sources");
-    config.epoch_queries = parse_u64(argv[11], "epoch_queries");
-    config.locality_percent = static_cast<std::uint32_t>(parse_u64(argv[12], "locality_percent"));
-    if (argc == 14) config.burst_length = parse_u64(argv[13], "burst_length");
+    config.hot_sources = parse_size(argv[10], "hot_sources");
+    config.epoch_queries = parse_size(argv[11], "epoch_queries");
+    config.locality_percent = parse_u32(argv[12], "locality_percent");
+    if (argc == 14) config.burst_length = parse_size(argv[13], "burst_length");
 
     const auto graph_sha = file_sha256(graph_path);
     auto graph = Graph::load_dimacs_gr_gz(graph_path);
