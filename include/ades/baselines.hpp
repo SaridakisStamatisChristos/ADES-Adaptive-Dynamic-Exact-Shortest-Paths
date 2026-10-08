@@ -6,6 +6,7 @@ enum class ResidentMode { FullRebuild, LocalRepair };
 class AlwaysResident {
  Graph graph_; ResidentMode mode_; std::unordered_map<std::uint32_t,SSSPState> states_;
 public:
+ std::size_t resident_count() const noexcept { return states_.size(); }
  AlwaysResident(Graph g,ResidentMode m):graph_(std::move(g)),mode_(m){}
  Distance query(std::uint32_t s,std::uint32_t t){
   auto it=states_.find(s);if(it==states_.end())it=states_.emplace(s,dijkstra(graph_,s)).first;return it->second.dist.at(t);

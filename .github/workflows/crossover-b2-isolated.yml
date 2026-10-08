@@ -27,6 +27,7 @@ jobs:
         shell: bash
         env:
           QUERIES: ${{ inputs.queries }}
+          ADES_MAX_RESIDENT_BYTES: '4294967296'
         run: |
           set -euo pipefail
           [[ "$QUERIES" =~ ^[1-9][0-9]*$ ]]
@@ -41,6 +42,8 @@ jobs:
             > "$out/B2.csv" 2> "$out/stderr.txt"
           rc=$?
           set -e
+          echo "::notice::B2 preflight and stderr:"
+          cat "$out/stderr.txt"
           elapsed=NA
           rss=NA
           if [[ -s "$out/time.txt" ]]; then

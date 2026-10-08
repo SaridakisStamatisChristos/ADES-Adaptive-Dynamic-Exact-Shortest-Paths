@@ -1,4 +1,5 @@
 #include "ades/ades.hpp"
+#include "ades/baselines.hpp"
 #include <cassert>
 #include <fstream>
 #include <iostream>
@@ -140,4 +141,16 @@ static void differential(){
   }
  }
 }
-int main(){shortest_path_corner_cases();saturating_distance_arithmetic();equal_distance_parent_cycle_prevention();dynamic_parallel_and_zero_weight_updates();epoch_membership_survives_repeated_repairs_and_wrap();repair_policy_modes_remain_exact();repair_work_accounting_is_complete();work_aware_controller_tightens_after_expensive_repairs();weak_candidate_cannot_evict_hot_resident();abort_discovery_is_read_only();repeated_reparent_preserves_spt_links();update_storm_does_not_promote_without_queries();rotating_semihot_sources_do_not_expand_cache();cost_aware_admission();decrease_requires_propagation();parent_increase_repairs_subtree();tight_nonparent_increase_cannot_be_ignored();early_abort_rebuild_is_exact();differential();std::cout<<"ADES repair tests passed\n";}
+static void unbounded_baseline_residency_accounting(){
+ Graph g(4);g.add_edge(0,1,1);g.add_edge(1,2,1);g.add_edge(2,3,1);
+ for(auto mode:{ResidentMode::FullRebuild,ResidentMode::LocalRepair}){
+  AlwaysResident b(g,mode);
+  assert(b.resident_count()==0);
+  assert(b.query(0,3)==3);assert(b.resident_count()==1);
+  assert(b.query(0,2)==2);assert(b.resident_count()==1);
+  assert(b.query(1,3)==2);assert(b.resident_count()==2);
+  b.update(0,2);assert(b.resident_count()==2);
+  assert(b.query(0,3)==4);assert(b.query(1,3)==2);
+ }
+}
+int main(){unbounded_baseline_residency_accounting();shortest_path_corner_cases();saturating_distance_arithmetic();equal_distance_parent_cycle_prevention();dynamic_parallel_and_zero_weight_updates();epoch_membership_survives_repeated_repairs_and_wrap();repair_policy_modes_remain_exact();repair_work_accounting_is_complete();work_aware_controller_tightens_after_expensive_repairs();weak_candidate_cannot_evict_hot_resident();abort_discovery_is_read_only();repeated_reparent_preserves_spt_links();update_storm_does_not_promote_without_queries();rotating_semihot_sources_do_not_expand_cache();cost_aware_admission();decrease_requires_propagation();parent_increase_repairs_subtree();tight_nonparent_increase_cannot_be_ignored();early_abort_rebuild_is_exact();differential();std::cout<<"ADES repair tests passed\n";}
