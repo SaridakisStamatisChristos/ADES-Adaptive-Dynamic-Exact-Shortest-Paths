@@ -51,6 +51,63 @@ The phase/bounded-comparator runner reports the same canonical SHA-256 and opera
 
 The old 64-bit engineering fingerprint remains present only in archived pre-PR42 evidence. It is not sufficient trace identity for new publication-facing experiments.
 
+## Workload Generator v2
+
+PR46 freezes the versioned synthetic-workload generator used by later publication-facing workload sweeps. The complete semantics are specified in `docs/WORKLOAD_GENERATOR_V2_PR46.md`.
+
+A PR46 workload artifact is identified by:
+
+```text
+graph_sha256
+seed
+config_sha256
+trace_sha256
+```
+
+where `graph_sha256` hashes the exact input graph file bytes, `config_sha256` hashes the canonical v2 generator configuration, and `trace_sha256` hashes the canonical PR42 operation stream.
+
+Synthetic publication traces generated after PR46 must preserve the complete workload configuration, including source family, update interval, update mode, perturbation magnitude, hot-source count, epoch length, locality percentage, and burst length. The same graph bytes + seed + canonical configuration must regenerate a byte-identical trace.
+
+The frozen source-family axis is:
+
+```text
+uniform
+single-hot
+hot-pool
+zipf
+rotating-hot
+churn
+```
+
+The frozen update-rate axis is:
+
+```text
+static (0), 1/2, 1/5, 1/10, 1/50, 1/100 updates per query
+```
+
+implemented as update intervals `0, 2, 5, 10, 50, 100`.
+
+The frozen update-mode axis is:
+
+```text
+increase-only
+decrease-only
+balanced-random
+strict-alternating
+bursty
+repeated-edge
+```
+
+The frozen perturbation bands are:
+
+```text
+small  = [1,3]
+medium = [4,31]
+large  = [32,255]
+```
+
+Workload generation must fail rather than silently weaken an infeasible requested update direction or magnitude. Negative and ADES-unfavorable cells produced by this expanded workload space remain admissible evidence and must not be filtered post hoc.
+
 ## Equal-byte persistent-state fairness
 
 PR43 introduces the common publication memory-control mechanism required by claim `C3`.
@@ -130,7 +187,7 @@ Every timed B0–B4 measurement runs in a separate process. Baseline order rotat
 
 ## Required workload families
 
-Seeded mixed synthetic traces; NY DIMACS distance and travel-time road graphs; true 2-D grid-derived local/geographic and broad/cross-region patterns with the same 25% update process as mixed traces; rotating semi-hot sources; update storms; catastrophic selected-SPT cuts; and repair-controller ablations.
+Publication-facing synthetic sweeps after PR46 must use Workload Generator v2 for the frozen source/update/magnitude axes above. Additional structured workloads remain required where relevant: NY DIMACS distance and travel-time road graphs; true 2-D grid-derived local/geographic and broad/cross-region patterns; update storms; catastrophic selected-SPT cuts; and repair-controller ablations.
 
 Performance claims require repetitions and distribution statistics. Exactness failure invalidates the corresponding performance run.
 
