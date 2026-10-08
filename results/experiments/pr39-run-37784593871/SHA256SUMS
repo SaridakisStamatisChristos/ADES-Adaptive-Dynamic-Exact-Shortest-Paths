@@ -1,0 +1,11 @@
+# Committed archive files (LF-normalized where noted in README)
+e594ff34e9fb649eb9e74908def34a597c9aa01e09535ca7214cab7cfc738d15  manifest.json
+7de64309a4c0782f4b62ae578c2bb80056e411e7950faeaae5c62ecdef84c5ba  measurements.csv
+e3e68bcd91c274ce98425aa24f0503e54ba91eeb411005fa6987fafe7e3b8482  summary.csv
+e51914573e7dda7bd9553a35e5dd2a108bed58a0dcbab3d0fba10bba2b9770e3  ANALYSIS.md
+fdab724eb0064228233f9013424f24b9a0df3b8dae5f1a9b7b0479f41ed185f4  README.md
+
+# Original GitHub Actions artifact provenance
+d75e6397b766d70693979e03c539a1db11d5d3927dd56c2c5bfb676e055bc192  original-actions-artifact.zip (not committed)
+761dc72fc102e7b29cbd60eb87f68ac948a654e0bf3d9b21e10938770dea0559  original-artifact/measurements.csv (CRLF)
+4c2ce244dfd6493a17d33a256f0edca2915f6a6851739bc74d5e549f49ae92fd  original-artifact/summary.csv (CRLF)

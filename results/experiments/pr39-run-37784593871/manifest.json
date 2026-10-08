@@ -1,0 +1,38 @@
+{
+  "utc_started": "2026-10-08T13:28:44.542778+00:00",
+  "git_commit": "77a92c49718e412f25fea2ca694ac163d670bcbd",
+  "graph_sha256": "7b2446c7ffe6179efbc42af6812448e8cb782f12968ca2bb1d50d979343056d4",
+  "graph": "/home/runner/work/ADES-Adaptive-Dynamic-Exact-Shortest-Paths/ADES-Adaptive-Dynamic-Exact-Shortest-Paths/benchmarks/data/USA-road-d.NY.gr.gz",
+  "binary": "/home/runner/work/ADES-Adaptive-Dynamic-Exact-Shortest-Paths/ADES-Adaptive-Dynamic-Exact-Shortest-Paths/build/ades_phase",
+  "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+  "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+  "runner": "GitHub Actions 1000022999",
+  "config": {
+    "queries": 100,
+    "repeats": 2,
+    "caps": [
+      2,
+      8
+    ],
+    "seeds": [
+      7,
+      17
+    ],
+    "families": [
+      "uniform",
+      "single-hot",
+      "hot-pool"
+    ],
+    "update_every": [
+      5,
+      10
+    ],
+    "update_mode": "alternating",
+    "require_both_update_directions": true,
+    "hot_sources": 4,
+    "epoch": 250,
+    "timeout": 600
+  },
+  "comparison_class": "matched-source-cap; NOT equal-RSS",
+  "evidence_class": "diagnostic; exact answers checked against independent Dijkstra oracle"
+}
