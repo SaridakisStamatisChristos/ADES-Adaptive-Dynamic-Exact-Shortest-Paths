@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 namespace ades {
 using Clock=std::chrono::steady_clock;
@@ -92,9 +93,6 @@ bool ADES::admit(std::uint32_t source,double candidate_score){
  if(cfg_.persistent_state_budget_bytes&&candidate_bytes>cfg_.persistent_state_budget_bytes){
   stats_.memory_budget_rejections++;return false;
  }
- // Ensure that, even with all resident states removed, B4 policy metadata plus
- // the candidate can fit. Lowest-value probation records and then earliest
- // cooldown records are deterministically pruned under pressure.
  if(!reclaim_nonresident_metadata_for(candidate_bytes)){
   stats_.memory_budget_rejections++;return false;
  }
@@ -123,64 +121,133 @@ bool ADES::admit(std::uint32_t source,double candidate_score){
   simulated-=victim.bytes;--simulated_count;victims.push_back(victim.source);
  }
 
- // Build before mutating residency. The candidate remains temporary until it is
- // inserted and therefore does not count as persistent state during construction.
- auto t=Clock::now();auto state=dijkstra(graph_,source);auto ns=ns_since(t);
+ if(!victims.empty()){
+  auto t=Clock::now();
+  for(auto victim:victims){residents_.erase(victim);stats_.evictions++;}
+  stats_.timing.eviction_ns+=ns_since(t);
+ }
+
+ // Promotion build/insert is query-side work. It is deliberately distinct from
+ // repair-abort rebuild timing so publication telemetry never double counts it.
+ auto promotion_start=Clock::now();
+ auto state=dijkstra(graph_,source);
+ const auto build_ns=ns_since(promotion_start);
  if(ades_resident_entry_accounted_bytes(state)!=candidate_bytes)
   throw std::logic_error("unexpected SSSP accounting shape");
-
- for(auto victim:victims){residents_.erase(victim);stats_.evictions++;}
- Entry e;e.s=std::move(state);e.hits=std::max<std::uint64_t>(1,(std::uint64_t)candidate_score);e.last_query=query_clock_;e.controller.observe_rebuild(ns);
+ Entry e;e.s=std::move(state);e.hits=std::max<std::uint64_t>(1,(std::uint64_t)candidate_score);e.last_query=query_clock_;
+ e.controller.observe_rebuild(build_ns);
  residents_.emplace(source,std::move(e));stats_.rebuilds++;stats_.promotions++;refresh_accounted_memory();
+ stats_.timing.promotion_ns+=ns_since(promotion_start);
 
- // Cooldown is policy metadata, not correctness state. Preserve it when it fits;
- // under a saturated byte budget, dropping it is preferable to violating C3.
- for(auto victim:victims){
-  auto existing=cooldown_until_.find(victim);
-  if(existing!=cooldown_until_.end()){existing->second=query_clock_+cfg_.cooldown_queries;continue;}
-  if(can_fit_accounted_bytes(ades_cooldown_entry_accounted_bytes()))
-   cooldown_until_.emplace(victim,query_clock_+cfg_.cooldown_queries);
-  else stats_.memory_budget_rejections++;
+ if(!victims.empty()){
+  auto t=Clock::now();
+  for(auto victim:victims){
+   auto existing=cooldown_until_.find(victim);
+   if(existing!=cooldown_until_.end()){existing->second=query_clock_+cfg_.cooldown_queries;continue;}
+   if(can_fit_accounted_bytes(ades_cooldown_entry_accounted_bytes()))
+    cooldown_until_.emplace(victim,query_clock_+cfg_.cooldown_queries);
+   else stats_.memory_budget_rejections++;
+  }
+  refresh_accounted_memory();
+  stats_.timing.eviction_ns+=ns_since(t);
  }
- refresh_accounted_memory();
  return true;
 }
 
 Distance ADES::query(std::uint32_t s,std::uint32_t t){
+ const auto query_start=Clock::now();
+ const auto cold_before=stats_.timing.cold_query_ns;
+ const auto promotion_before=stats_.timing.promotion_ns;
+ const auto eviction_before=stats_.timing.eviction_ns;
+ auto finish_cold=[&](Distance answer){
+  const auto total=ns_since(query_start);
+  const auto components=(stats_.timing.cold_query_ns-cold_before)+
+                        (stats_.timing.promotion_ns-promotion_before)+
+                        (stats_.timing.eviction_ns-eviction_before);
+  if(components>total)throw std::logic_error("query telemetry overlap detected");
+  stats_.timing.query_time_ns+=total;
+  stats_.timing.query_policy_ns+=total-components;
+  return answer;
+ };
+
  query_clock_++;prune_expired_cooldowns();
- if(auto it=residents_.find(s);it!=residents_.end()){stats_.resident_queries++;it->second.hits++;it->second.last_query=query_clock_;return it->second.s.dist.at(t);}
- stats_.cold_queries++;auto cold=bidirectional_dijkstra_profiled(graph_,s,t);
+ if(auto it=residents_.find(s);it!=residents_.end()){
+  stats_.resident_queries++;it->second.hits++;it->second.last_query=query_clock_;
+  const auto answer=it->second.s.dist.at(t);
+  const auto total=ns_since(query_start);
+  stats_.timing.query_time_ns+=total;
+  stats_.timing.resident_query_ns+=total;
+  return answer;
+ }
+
+ stats_.cold_queries++;
+ auto cold_start=Clock::now();
+ auto cold=bidirectional_dijkstra_profiled(graph_,s,t);
+ stats_.timing.cold_query_ns+=ns_since(cold_start);
  auto pit=probation_.find(s);
  if(pit==probation_.end()){
-  if(!can_fit_accounted_bytes(ades_probation_entry_accounted_bytes())){stats_.memory_budget_rejections++;return cold.distance;}
+  if(!can_fit_accounted_bytes(ades_probation_entry_accounted_bytes())){
+   stats_.memory_budget_rejections++;return finish_cold(cold.distance);
+  }
   pit=probation_.emplace(s,Probation{}).first;refresh_accounted_memory();
  }
  auto&p=pit->second;p.queries++;p.edge_scans+=cold.edge_scans;const double build_work=double(graph_.edge_count());
  if(p.queries>=cfg_.probation_queries&&double(p.edge_scans)>=cfg_.promotion_ratio*build_work){
   const double candidate_score=double(p.queries);
-  // Successful admission replaces probation state; erase it before budget
-  // planning so the same bytes are not charged twice.
   probation_.erase(pit);refresh_accounted_memory();
   (void)admit(s,candidate_score);
  }
- return cold.distance;
+ return finish_cold(cold.distance);
 }
 
 void ADES::update(std::uint32_t id,Weight nw){
- auto old=graph_.edge(id);if(old.weight==nw)return;graph_.update_weight(id,nw);
- for(auto&kv:residents_){auto&entry=kv.second;entry.update_debt++;auto&st=entry.s;RepairResult r;std::size_t discovered=0;RepairWork work{};auto t=Clock::now();
-  if(nw<old.weight)r=repair_decrease(graph_,st,id);
-  else{
+ const auto update_start=Clock::now();
+ const auto graph_before=stats_.timing.graph_update_ns;
+ const auto decrease_before=stats_.timing.decrease_repair_ns;
+ const auto increase_before=stats_.timing.increase_repair_ns;
+ const auto rebuild_before=stats_.timing.rebuild_ns;
+ const auto controller_before=stats_.timing.controller_ns;
+ auto finish_update=[&]{
+  const auto total=ns_since(update_start);
+  const auto components=(stats_.timing.graph_update_ns-graph_before)+
+                        (stats_.timing.decrease_repair_ns-decrease_before)+
+                        (stats_.timing.increase_repair_ns-increase_before)+
+                        (stats_.timing.rebuild_ns-rebuild_before)+
+                        (stats_.timing.controller_ns-controller_before);
+  if(components>total)throw std::logic_error("update telemetry overlap detected");
+  stats_.timing.update_time_ns+=total;
+  stats_.timing.update_policy_ns+=total-components;
+ };
+
+ auto old=graph_.edge(id);
+ if(old.weight==nw){finish_update();return;}
+ auto graph_start=Clock::now();graph_.update_weight(id,nw);stats_.timing.graph_update_ns+=ns_since(graph_start);
+ for(auto&kv:residents_){
+  auto&entry=kv.second;entry.update_debt++;auto&st=entry.s;RepairResult r;std::size_t discovered=0;RepairWork work{};
+  if(nw<old.weight){
+   auto t=Clock::now();r=repair_decrease(graph_,st,id);stats_.timing.decrease_repair_ns+=ns_since(t);
+  }else{
    RepairController::Budget b{cfg_.repair_safety_ceiling.max_discovery_vertices,cfg_.repair_safety_ceiling.max_discovery_tree_edges,cfg_.repair_safety_ceiling.max_total_work};
+   auto controller_start=Clock::now();
    if(cfg_.repair_policy==RepairPolicy::VertexOnly)b=entry.controller.vertex_only_budget();
    else if(cfg_.repair_policy==RepairPolicy::WorkAware)b=entry.controller.budget();
+   stats_.timing.controller_ns+=ns_since(controller_start);
+   auto repair_start=Clock::now();
    r=repair_increase(graph_,st,id,old,{std::min(b.vertices,cfg_.repair_safety_ceiling.max_discovery_vertices),std::min(b.tree_edges,cfg_.repair_safety_ceiling.max_discovery_tree_edges),std::min(b.work_units,cfg_.repair_safety_ceiling.max_total_work)},&discovered,&work);
+   const auto repair_ns=ns_since(repair_start);stats_.timing.increase_repair_ns+=repair_ns;
+   if(r==RepairResult::Repaired){
+    stats_.increase_repairs++;
+    controller_start=Clock::now();entry.controller.observe_repair(repair_ns,work);stats_.timing.controller_ns+=ns_since(controller_start);
+    continue;
+   }
   }
-  auto elapsed=ns_since(t);
   if(r==RepairResult::Filtered){stats_.filtered_updates++;continue;}
-  if(r==RepairResult::Repaired){if(nw<old.weight)stats_.decrease_repairs++;else{stats_.increase_repairs++;entry.controller.observe_repair(elapsed,work);}continue;}
-  stats_.repair_aborts++;t=Clock::now();st=dijkstra(graph_,st.source);entry.controller.observe_rebuild(ns_since(t));stats_.rebuilds++;
+  if(r==RepairResult::Repaired){stats_.decrease_repairs++;continue;}
+  stats_.repair_aborts++;
+  auto rebuild_start=Clock::now();st=dijkstra(graph_,st.source);const auto rebuild_ns=ns_since(rebuild_start);stats_.timing.rebuild_ns+=rebuild_ns;
+  auto controller_start=Clock::now();entry.controller.observe_rebuild(rebuild_ns);stats_.timing.controller_ns+=ns_since(controller_start);stats_.rebuilds++;
  }
  refresh_accounted_memory();
+ finish_update();
 }
 }

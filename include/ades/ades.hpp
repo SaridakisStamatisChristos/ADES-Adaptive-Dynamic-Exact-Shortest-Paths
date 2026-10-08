@@ -1,6 +1,7 @@
 #pragma once
 #include "ades/dynamic_repair.hpp"
 #include "ades/repair_controller.hpp"
+#include "ades/telemetry.hpp"
 #include <cstdint>
 #include <unordered_map>
 namespace ades {
@@ -18,6 +19,7 @@ struct Stats {
  admission_rejections=0,filtered_updates=0,decrease_repairs=0,increase_repairs=0,repair_aborts=0,
  memory_budget_rejections=0,memory_metadata_prunes=0,
  accounted_algorithm_state_bytes=0,peak_accounted_algorithm_state_bytes=0,persistent_state_budget_bytes=0;
+ TimingStats timing{};
 };
 class ADES {
  Graph graph_; Config cfg_; Stats stats_; std::uint64_t query_clock_=0;

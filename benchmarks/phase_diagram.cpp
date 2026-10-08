@@ -2,6 +2,7 @@
 #include "ades/baselines.hpp"
 #include "ades/bounded_baselines.hpp"
 #include "ades/memory_budget.hpp"
+#include "ades/telemetry.hpp"
 #include "ades/trace.hpp"
 
 #include <algorithm>
@@ -26,6 +27,32 @@ struct Op {
   Weight w;
   Weight old_w;
 };
+
+struct OracleResult {
+  std::vector<Distance> answers;
+  std::uint64_t time_ns = 0;
+};
+
+struct RunTiming {
+  std::uint64_t algorithm_ns = 0;
+  std::uint64_t query_ns = 0;
+  std::uint64_t update_ns = 0;
+  std::vector<std::uint64_t> operation_latencies;
+  std::vector<std::uint64_t> query_latencies;
+  std::vector<std::uint64_t> update_latencies;
+};
+
+static std::uint64_t elapsed_ns(Clock::time_point start) {
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start).count();
+}
+
+static std::uint64_t percentile_ns(std::vector<std::uint64_t> values, double p) {
+  if (values.empty()) return 0;
+  std::sort(values.begin(), values.end());
+  const auto rank = static_cast<std::size_t>(std::ceil(p * static_cast<double>(values.size())));
+  const auto index = std::min(values.size() - 1, rank ? rank - 1 : std::size_t{0});
+  return values[index];
+}
 
 static std::vector<std::uint32_t> hot_pool(std::size_t n, std::size_t k,
                                            std::mt19937_64& r) {
@@ -66,8 +93,7 @@ static std::uint32_t pick_directional_edge(const Graph& g,
   if (!g.edge_count()) throw std::runtime_error("cannot update an empty graph");
   constexpr Weight max_w = std::numeric_limits<Weight>::max();
   for (std::size_t i = 0; i < g.edge_count(); ++i) {
-    auto id = static_cast<std::uint32_t>(
-        (static_cast<std::size_t>(start) + i) % g.edge_count());
+    auto id = static_cast<std::uint32_t>((static_cast<std::size_t>(start) + i) % g.edge_count());
     const auto w = g.edge(id).weight;
     if (increase ? (w <= max_w - 31) : (w > 0)) return id;
   }
@@ -83,45 +109,35 @@ static std::vector<Op> make_trace(const Graph& g, const std::string& family,
                                   const std::string& update_mode) {
   Graph trace_g = g;
   std::mt19937_64 r(seed);
-  auto hot = hot_pool(trace_g.vertex_count(),
-                      std::max<std::size_t>(1, hot_sources), r);
+  auto hot = hot_pool(trace_g.vertex_count(), std::max<std::size_t>(1, hot_sources), r);
   std::vector<Op> ops;
   ops.reserve(queries + (update_every ? queries / update_every : 0));
   std::size_t update_index = 0;
-
   for (std::size_t q = 0; q < queries; q++) {
     if (update_every && q && q % update_every == 0) {
       auto id = static_cast<std::uint32_t>(r() % trace_g.edge_count());
       auto old = trace_g.edge(id).weight;
       Weight nw = old;
-
       if (update_mode == "random") {
-        nw = (r() & 1)
-                 ? old + 1 + (r() % 31)
-                 : (old ? old - std::min<Weight>(
-                                  old, r() % std::min<Weight>(old + 1, 31))
-                        : 0);
+        nw = (r() & 1) ? old + 1 + (r() % 31)
+                       : (old ? old - std::min<Weight>(old, r() % std::min<Weight>(old + 1, 31)) : 0);
       } else if (update_mode == "alternating") {
         const bool increase = (update_index % 2 == 0);
         id = pick_directional_edge(trace_g, id, increase);
         old = trace_g.edge(id).weight;
-        if (increase) {
-          nw = old + 1 + (r() % 31);
-        } else {
+        if (increase) nw = old + 1 + (r() % 31);
+        else {
           const Weight bound = std::min<Weight>(old, 31);
           nw = old - (1 + (r() % bound));
         }
       } else {
         throw std::runtime_error("unknown update mode");
       }
-
       ++update_index;
       trace_g.update_weight(id, nw);
       ops.push_back({true, id, 0, nw, old});
     }
-
-    auto s = pick_source(family, hot, q, std::max<std::size_t>(1, epoch),
-                         g.vertex_count(), r);
+    auto s = pick_source(family, hot, q, std::max<std::size_t>(1, epoch), g.vertex_count(), r);
     auto t = static_cast<std::uint32_t>(r() % g.vertex_count());
     ops.push_back({false, s, t, 0, 0});
   }
@@ -131,43 +147,59 @@ static std::vector<Op> make_trace(const Graph& g, const std::string& family,
 static std::vector<TraceOp> canonicalize(const std::vector<Op>& ops) {
   std::vector<TraceOp> trace;
   trace.reserve(ops.size());
-  for (const auto& op : ops) {
-    if (op.update) trace.push_back(TraceOp::update(op.a, op.old_w, op.w));
-    else trace.push_back(TraceOp::query(op.a, op.b));
-  }
+  for (const auto& op : ops)
+    trace.push_back(op.update ? TraceOp::update(op.a, op.old_w, op.w)
+                              : TraceOp::query(op.a, op.b));
   return trace;
 }
 
-static std::vector<Distance> oracle(Graph g, const std::vector<Op>& ops) {
-  std::vector<Distance> x;
+static OracleResult oracle(Graph g, const std::vector<Op>& ops) {
+  OracleResult result;
+  result.answers.reserve(ops.size());
+  const auto start = Clock::now();
   for (const auto& o : ops) {
     if (o.update) g.update_weight(o.a, o.w);
-    else x.push_back(dijkstra(g, o.a).dist[o.b]);
+    else result.answers.push_back(dijkstra(g, o.a).dist[o.b]);
   }
-  return x;
+  result.time_ns = elapsed_ns(start);
+  return result;
 }
 
 template <class E>
-static std::uint64_t run(E& e, const std::vector<Op>& ops,
-                         const std::vector<Distance>& ref) {
+static RunTiming run(E& e, const std::vector<Op>& ops,
+                     const std::vector<Distance>& ref) {
+  RunTiming timing;
+  timing.operation_latencies.reserve(ops.size());
+  timing.query_latencies.reserve(ref.size());
+  timing.update_latencies.reserve(ops.size() - ref.size());
   std::size_t qi = 0;
-  auto s = Clock::now();
   for (const auto& o : ops) {
-    if (o.update) e.update(o.a, o.w);
-    else if (e.query(o.a, o.b) != ref[qi++]) {
-      std::cerr << "exactness failure\n";
-      std::exit(3);
+    const auto start = Clock::now();
+    if (o.update) {
+      e.update(o.a, o.w);
+      const auto ns = elapsed_ns(start);
+      timing.update_ns += ns;
+      timing.update_latencies.push_back(ns);
+      timing.operation_latencies.push_back(ns);
+    } else {
+      const auto answer = e.query(o.a, o.b);
+      const auto ns = elapsed_ns(start);
+      timing.query_ns += ns;
+      timing.query_latencies.push_back(ns);
+      timing.operation_latencies.push_back(ns);
+      if (answer != ref[qi++]) {
+        std::cerr << "exactness failure\n";
+        std::exit(3);
+      }
     }
   }
-  return std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - s)
-      .count();
+  timing.algorithm_ns = timing.query_ns + timing.update_ns;
+  return timing;
 }
 
 struct B1 {
   Graph g;
-  Distance query(std::uint32_t s, std::uint32_t t) {
-    return bidirectional_dijkstra(g, s, t);
-  }
+  Distance query(std::uint32_t s, std::uint32_t t) { return bidirectional_dijkstra(g, s, t); }
   void update(std::uint32_t e, Weight w) { g.update_weight(e, w); }
 };
 
@@ -177,11 +209,8 @@ static std::uint64_t persistent_budget_from_env() {
   std::string value(raw);
   std::size_t pos = 0;
   std::uint64_t budget = 0;
-  try {
-    budget = std::stoull(value, &pos);
-  } catch (const std::exception&) {
-    throw std::runtime_error("invalid ADES_PERSISTENT_STATE_BUDGET_BYTES");
-  }
+  try { budget = std::stoull(value, &pos); }
+  catch (const std::exception&) { throw std::runtime_error("invalid ADES_PERSISTENT_STATE_BUDGET_BYTES"); }
   if (pos != value.size() || !budget)
     throw std::runtime_error("invalid ADES_PERSISTENT_STATE_BUDGET_BYTES");
   return budget;
@@ -190,9 +219,7 @@ static std::uint64_t persistent_budget_from_env() {
 int main(int argc, char** argv) {
   try {
     if (argc < 9) {
-      std::cerr << "usage: ades_phase graph B1|B2|B3|B4|B2L|B3L|ALL family "
-                   "queries update_every hot_sources epoch seed [cap] "
-                   "[random|alternating]\n"
+      std::cerr << "usage: ades_phase graph B1|B2|B3|B4|B2L|B3L|ALL family queries update_every hot_sources epoch seed [cap] [random|alternating]\n"
                    "optional env: ADES_PERSISTENT_STATE_BUDGET_BYTES=N\n";
       return 2;
     }
@@ -221,8 +248,6 @@ int main(int argc, char** argv) {
       return 2;
     }
 
-    // In equal-byte mode the source-count ceiling is deliberately made
-    // nonbinding; the common persistent-state byte budget controls residency.
     std::size_t effective_cap = cap;
     if (persistent_budget && (base == "B2L" || base == "B3L" || base == "B4"))
       effective_cap = std::max<std::size_t>(1, g.vertex_count());
@@ -232,9 +257,7 @@ int main(int argc, char** argv) {
     validate_trace_against_graph(g, canonical);
     const auto sha = trace_sha256(canonical);
     const auto counts = trace_counts(canonical);
-    const auto unchanged =
-        counts.update_count - counts.increase_count - counts.decrease_count;
-
+    const auto unchanged = counts.update_count - counts.increase_count - counts.decrease_count;
     std::cerr << "TRACE_IDENTITY sha256=" << sha
               << " queries=" << counts.query_count
               << " updates=" << counts.update_count
@@ -244,19 +267,14 @@ int main(int argc, char** argv) {
               << " mode=" << update_mode << "\n";
 
     std::unordered_set<std::uint32_t> distinct;
-    for (const auto& op : ops)
-      if (!op.update) distinct.insert(op.a);
-    const std::uint64_t per_vertex =
-        sizeof(Distance) + 4 * sizeof(std::int64_t) + sizeof(std::uint32_t);
+    for (const auto& op : ops) if (!op.update) distinct.insert(op.a);
+    const std::uint64_t per_vertex = sizeof(Distance) + 4 * sizeof(std::int64_t) + sizeof(std::uint32_t);
     const auto n = static_cast<std::uint64_t>(g.vertex_count());
     const auto sources = static_cast<std::uint64_t>(distinct.size());
-    const bool overflow =
-        n && (sources > std::numeric_limits<std::uint64_t>::max() / n ||
-              (sources * n) >
-                  std::numeric_limits<std::uint64_t>::max() / per_vertex);
-    const std::uint64_t resident_bytes =
-        overflow ? std::numeric_limits<std::uint64_t>::max()
-                 : sources * n * per_vertex;
+    const bool overflow = n && (sources > std::numeric_limits<std::uint64_t>::max() / n ||
+                                (sources * n) > std::numeric_limits<std::uint64_t>::max() / per_vertex);
+    const std::uint64_t resident_bytes = overflow ? std::numeric_limits<std::uint64_t>::max()
+                                                  : sources * n * per_vertex;
     std::cerr << "MEMORY_PREFLIGHT baseline=" << base << " vertices=" << n
               << " distinct_sources=" << sources
               << " resident_state_payload_bytes=" << resident_bytes
@@ -264,9 +282,7 @@ int main(int argc, char** argv) {
 
     if (const char* raw = std::getenv("ADES_MAX_RESIDENT_BYTES");
         raw && *raw && (base == "B2" || base == "B3" || base == "ALL")) {
-      std::string limit(raw);
-      std::size_t pos = 0;
-      std::uint64_t budget = 0;
+      std::string limit(raw); std::size_t pos = 0; std::uint64_t budget = 0;
       try { budget = std::stoull(limit, &pos); }
       catch (const std::exception&) { std::cerr << "invalid ADES_MAX_RESIDENT_BYTES\n"; return 2; }
       if (pos != limit.size() || !budget) { std::cerr << "invalid ADES_MAX_RESIDENT_BYTES\n"; return 2; }
@@ -277,47 +293,51 @@ int main(int argc, char** argv) {
       }
     }
 
-    auto ref = oracle(g, ops);
-    auto emit = [&](const std::string& b, std::uint64_t ns, const Stats& st) {
-      std::cout << b << ',' << family << ',' << seed << ',' << sha << ','
+    const auto oracle_result = oracle(g, ops);
+    const auto& ref = oracle_result.answers;
+
+    auto emit = [&](const std::string& b, const RunTiming& rt, const Stats& st) {
+      const auto& it = st.timing;
+      std::cout << kPublicationTelemetrySchemaVersion << ',' << b << ',' << family << ',' << seed << ',' << sha << ','
                 << counts.query_count << ',' << counts.update_count << ','
                 << counts.increase_count << ',' << counts.decrease_count << ','
                 << ue << ',' << hs << ',' << ep << ',' << effective_cap << ','
                 << st.persistent_state_budget_bytes << ','
                 << st.accounted_algorithm_state_bytes << ','
                 << st.peak_accounted_algorithm_state_bytes << ','
-                << kPersistentStateAccountingVersion << ',' << ns << ','
-                << st.cold_queries << ',' << st.resident_queries << ','
-                << st.promotions << ',' << st.evictions << ',' << st.rebuilds
-                << ',' << st.repair_aborts << '\n';
+                << kPersistentStateAccountingVersion << ','
+                << oracle_result.time_ns << ',' << rt.algorithm_ns << ',' << rt.query_ns << ',' << rt.update_ns << ','
+                << percentile_ns(rt.operation_latencies,0.50) << ',' << percentile_ns(rt.operation_latencies,0.95) << ','
+                << percentile_ns(rt.query_latencies,0.50) << ',' << percentile_ns(rt.query_latencies,0.95) << ','
+                << percentile_ns(rt.update_latencies,0.50) << ',' << percentile_ns(rt.update_latencies,0.95) << ','
+                << st.cold_queries << ',' << st.resident_queries << ',' << st.promotions << ',' << st.evictions << ','
+                << st.rebuilds << ',' << st.repair_aborts << ',' << st.cooldown_blocks << ',' << st.admission_rejections << ','
+                << st.filtered_updates << ',' << st.decrease_repairs << ',' << st.increase_repairs << ','
+                << st.memory_budget_rejections << ',' << st.memory_metadata_prunes << ','
+                << it.query_time_ns << ',' << it.update_time_ns << ','
+                << it.cold_query_ns << ',' << it.resident_query_ns << ',' << it.query_policy_ns << ','
+                << it.promotion_ns << ',' << it.eviction_ns << ',' << it.graph_update_ns << ','
+                << it.decrease_repair_ns << ',' << it.increase_repair_ns << ',' << it.rebuild_ns << ','
+                << it.controller_ns << ',' << it.update_policy_ns << '\n';
     };
 
     auto one = [&](const std::string& b) {
-      std::uint64_t ns = 0;
-      Stats st{};
+      RunTiming rt{}; Stats st{};
       if (b == "B1") {
-        B1 e{g};
-        ns = run(e, ops, ref);
-        st.persistent_state_budget_bytes = persistent_budget;
+        B1 e{g}; rt = run(e, ops, ref); st.persistent_state_budget_bytes = persistent_budget;
       } else if (b == "B2") {
-        AlwaysResident e(g, ResidentMode::FullRebuild);
-        ns = run(e, ops, ref);
+        AlwaysResident e(g, ResidentMode::FullRebuild); rt = run(e, ops, ref);
       } else if (b == "B3") {
-        AlwaysResident e(g, ResidentMode::LocalRepair);
-        ns = run(e, ops, ref);
+        AlwaysResident e(g, ResidentMode::LocalRepair); rt = run(e, ops, ref);
       } else if (b == "B2L" || b == "B3L") {
-        BoundedResident e(g, b == "B2L" ? ResidentMode::FullRebuild
-                                         : ResidentMode::LocalRepair,
+        BoundedResident e(g, b == "B2L" ? ResidentMode::FullRebuild : ResidentMode::LocalRepair,
                           effective_cap, persistent_budget);
-        ns = run(e, ops, ref);
-        st.cold_queries = e.misses();
-        st.resident_queries = e.hits();
-        st.evictions = e.evictions();
+        rt = run(e, ops, ref);
+        st.cold_queries = e.misses(); st.resident_queries = e.hits(); st.evictions = e.evictions();
         st.persistent_state_budget_bytes = e.persistent_state_budget_bytes();
         st.accounted_algorithm_state_bytes = e.accounted_algorithm_state_bytes();
         st.peak_accounted_algorithm_state_bytes = e.peak_accounted_algorithm_state_bytes();
-        std::cerr << "BOUNDED_RESIDENCY baseline=" << b
-                  << " cap_sources=" << effective_cap
+        std::cerr << "BOUNDED_RESIDENCY baseline=" << b << " cap_sources=" << effective_cap
                   << " budget_bytes=" << e.persistent_state_budget_bytes()
                   << " accounted_bytes=" << e.accounted_algorithm_state_bytes()
                   << " peak_accounted_bytes=" << e.peak_accounted_algorithm_state_bytes()
@@ -326,36 +346,35 @@ int main(int argc, char** argv) {
                   << " misses=" << e.misses() << " hits=" << e.hits()
                   << " evictions=" << e.evictions() << "\n";
       } else if (b == "B4") {
-        Config cfg;
-        cfg.resident_cap = effective_cap;
-        cfg.persistent_state_budget_bytes = persistent_budget;
-        ADES e(g, cfg);
-        ns = run(e, ops, ref);
-        st = e.stats();
+        Config cfg; cfg.resident_cap = effective_cap; cfg.persistent_state_budget_bytes = persistent_budget;
+        ADES e(g, cfg); rt = run(e, ops, ref); st = e.stats();
+        if (!st.timing.reconciles()) {
+          std::cerr << "B4 telemetry reconciliation failure\n";
+          return false;
+        }
         std::cerr << "ADES_MEMORY budget_bytes=" << st.persistent_state_budget_bytes
                   << " accounted_bytes=" << st.accounted_algorithm_state_bytes
                   << " peak_accounted_bytes=" << st.peak_accounted_algorithm_state_bytes
                   << " accounting_version=" << kPersistentStateAccountingVersion
                   << " budget_rejections=" << st.memory_budget_rejections
                   << " metadata_prunes=" << st.memory_metadata_prunes << "\n";
-      } else {
+      } else return false;
+
+      if (rt.algorithm_ns != rt.query_ns + rt.update_ns) {
+        std::cerr << "top-level telemetry reconciliation failure\n";
         return false;
       }
-      if (persistent_budget &&
-          st.peak_accounted_algorithm_state_bytes > persistent_budget) {
+      if (persistent_budget && st.peak_accounted_algorithm_state_bytes > persistent_budget) {
         std::cerr << "persistent-state budget violation\n";
         return false;
       }
-      emit(b, ns, st);
+      emit(b, rt, st);
       return true;
     };
 
     if (base == "ALL") {
-      for (const char* b : {"B1", "B2", "B3", "B4"})
-        if (!one(b)) return 2;
-    } else if (!one(base)) {
-      return 2;
-    }
+      for (const char* b : {"B1", "B2", "B3", "B4"}) if (!one(b)) return 2;
+    } else if (!one(base)) return 2;
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "ades_phase: " << error.what() << '\n';

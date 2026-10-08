@@ -79,6 +79,49 @@ Equal-byte matched cells must use the same configured budget and accounting vers
 
 Legacy equal-source-cap experiments remain valid engineering diagnostics but do **not** satisfy C3 and must not be relabeled as equal-byte publication evidence.
 
+## Publication timing and telemetry
+
+PR44 introduces `schema_version=2` for publication-facing phase rows. The schema definition and compatibility parser live in `tools/phase_schema.py`; semantic changes require a schema-version bump rather than silent column reuse.
+
+For every comparator:
+
+```text
+algorithm_ns = query_ns + update_ns
+```
+
+The query timer covers only the comparator's `query` call; exactness comparison occurs after the timer stops. The update timer covers only the comparator's `update` call. Trace generation, validation, oracle construction, percentile calculation, CSV emission, and exactness comparison are outside `algorithm_ns`.
+
+`oracle_ns` is recorded separately and never contributes to algorithm time.
+
+Schema v2 records nearest-rank p50/p95 latencies for all operations and separately for queries and updates. Empty operation classes report `0`.
+
+B4 also reports a disjoint query-domain partition:
+
+```text
+b4_query_time_ns =
+    b4_cold_query_ns
+  + b4_resident_query_ns
+  + b4_query_policy_ns
+  + b4_promotion_ns
+  + b4_eviction_ns
+```
+
+and a disjoint update-domain partition:
+
+```text
+b4_update_time_ns =
+    b4_graph_update_ns
+  + b4_decrease_repair_ns
+  + b4_increase_repair_ns
+  + b4_rebuild_ns
+  + b4_controller_ns
+  + b4_update_policy_ns
+```
+
+Promotion-time Dijkstra construction is charged to `b4_promotion_ns`; Dijkstra fallback after a repair abort is charged to `b4_rebuild_ns`. They are not counted in both domains.
+
+Every B4 row must reconcile exactly under both identities. Analysis tooling rejects a non-reconciling schema-v2 row. The detailed field semantics and CI acceptance rules are frozen in `docs/PUBLICATION_TELEMETRY_PR44.md`.
+
 ## Reproducibility metadata
 
 The run_matrix script records UTC time, commit SHA, OS/kernel, CPU model, total RAM, compiler, CMake version, build type, declared thread count, graph path, seed, operation count, repetition, query/update counts, update-direction counts, trace SHA-256, elapsed nanoseconds, per-process peak RSS, and the material B4 configuration.

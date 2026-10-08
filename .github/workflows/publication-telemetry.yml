@@ -1,0 +1,78 @@
+name: ADES publication telemetry gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  telemetry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Verify New York graph
+        run: bash tools/verify_ny_dimacs.sh benchmarks/data
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+      - name: Run schema-v2 matched telemetry smoke
+        run: |
+          set -euo pipefail
+          mkdir -p results/publication-telemetry
+          for baseline in B1 B2L B3L B4; do
+            ./build/ades_phase \
+              benchmarks/data/USA-road-d.NY.gr.gz \
+              "$baseline" single-hot 40 10 2 10 17 4 alternating \
+              > "results/publication-telemetry/${baseline}.csv" \
+              2> "results/publication-telemetry/${baseline}.stderr"
+          done
+      - name: Verify reconciliation, trace identity and schema
+        run: |
+          python3 - <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "tools")
+          from phase_schema import parse_phase_line, validate_v2_reconciliation
+
+          root = Path("results/publication-telemetry")
+          rows = []
+          for baseline in ("B1", "B2L", "B3L", "B4"):
+              line = (root / f"{baseline}.csv").read_text().strip()
+              row = parse_phase_line(line)
+              validate_v2_reconciliation(row)
+              assert row["schema_version"] == "2"
+              assert row["baseline"] == baseline
+              assert int(row["algorithm_ns"]) == int(row["query_ns"]) + int(row["update_ns"])
+              assert int(row["oracle_ns"]) >= 0
+              assert int(row["operation_p95_ns"]) >= int(row["operation_p50_ns"])
+              rows.append(row)
+
+          identities = {(r["trace_sha256"], r["queries"], r["updates"],
+                         r["increase_count"], r["decrease_count"]) for r in rows}
+          assert len(identities) == 1, identities
+          b4 = next(r for r in rows if r["baseline"] == "B4")
+          summary = {
+              "schema_version": 2,
+              "claim_ids": ["C1", "C2", "C4", "C5", "C6", "C7", "C9"],
+              "trace_sha256": b4["trace_sha256"],
+              "algorithm_reconciles": True,
+              "b4_query_reconciles": True,
+              "b4_update_reconciles": True,
+              "oracle_excluded_from_algorithm_time": True,
+          }
+          (root / "SUMMARY.json").write_text(json.dumps(summary, indent=2) + "\n")
+          PY
+      - name: Upload telemetry evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-publication-telemetry-pr44
+          path: results/publication-telemetry
+          if-no-files-found: error

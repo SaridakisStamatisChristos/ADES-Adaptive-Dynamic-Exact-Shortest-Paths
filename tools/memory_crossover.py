@@ -13,18 +13,26 @@ import subprocess
 import sys
 import time
 
+from phase_schema import parse_phase_line, validate_v2_reconciliation
+
 BASELINES = ("B2L", "B3L", "B4")
-PHASE_FIELDS = (
-    "baseline", "family", "seed", "trace_sha256", "queries", "updates",
-    "increase_count", "decrease_count", "update_every", "hot_sources", "epoch",
-    "cap", "persistent_state_budget_bytes", "accounted_algorithm_state_bytes",
-    "peak_accounted_algorithm_state_bytes", "accounting_version", "algorithm_ns",
-    "cold_queries", "resident_queries", "promotions", "evictions", "rebuilds",
-    "repair_aborts",
-)
 TRACE_RE = re.compile(
     r"TRACE_IDENTITY sha256=([0-9a-f]{64}) queries=(\d+) updates=(\d+) "
     r"increases=(\d+) decreases=(\d+) unchanged=(\d+) mode=(\w+)"
+)
+EXPORT_FIELDS = (
+    "schema_version", "persistent_state_budget_bytes", "accounted_algorithm_state_bytes",
+    "peak_accounted_algorithm_state_bytes", "accounting_version", "oracle_ns",
+    "algorithm_ns", "query_ns", "update_ns", "operation_p50_ns", "operation_p95_ns",
+    "query_p50_ns", "query_p95_ns", "update_p50_ns", "update_p95_ns",
+    "cold_queries", "resident_queries", "promotions", "evictions", "rebuilds",
+    "repair_aborts", "cooldown_blocks", "admission_rejections", "filtered_updates",
+    "decrease_repairs", "increase_repairs", "memory_budget_rejections",
+    "memory_metadata_prunes", "b4_query_time_ns", "b4_update_time_ns",
+    "b4_cold_query_ns", "b4_resident_query_ns", "b4_query_policy_ns",
+    "b4_promotion_ns", "b4_eviction_ns", "b4_graph_update_ns",
+    "b4_decrease_repair_ns", "b4_increase_repair_ns", "b4_rebuild_ns",
+    "b4_controller_ns", "b4_update_policy_ns",
 )
 
 
@@ -65,34 +73,28 @@ def main():
     if not binary.is_file() or not graph.is_file():
         p.error("binary and graph must exist")
 
-    graph_sha = hashlib.sha256(graph.read_bytes()).hexdigest()
     meta = dict(
+        schema="ades-dynamic-crossover-v2",
+        phase_schema_version=2,
         utc_started=dt.datetime.now(dt.timezone.utc).isoformat(),
         git_commit=os.environ.get("GITHUB_SHA", "local-unpinned"),
-        graph_sha256=graph_sha,
-        graph=str(graph),
-        binary=str(binary),
-        platform=platform.platform(),
-        python=sys.version,
+        graph_sha256=hashlib.sha256(graph.read_bytes()).hexdigest(),
+        graph=str(graph), binary=str(binary), platform=platform.platform(), python=sys.version,
         runner=os.environ.get("RUNNER_NAME", "local"),
         config={k: v for k, v in vars(args).items() if k not in ("binary", "graph", "output")},
         comparison_class="matched-source-cap; NOT equal-byte publication evidence",
         evidence_class="diagnostic; exact answers checked against independent Dijkstra oracle",
         trace_identity="canonical operation stream SHA-256",
+        timing_contract="oracle excluded; algorithm_ns=query_ns+update_ns; B4 components disjoint",
     )
     (out / "manifest.json").write_text(json.dumps(meta, indent=2) + "\n")
 
     fields = [
         "cell", "repeat", "order", "baseline", "family", "seed", "queries",
-        "update_every", "update_mode", "hot_sources", "epoch", "cap",
-        "persistent_state_budget_bytes", "accounted_algorithm_state_bytes",
-        "peak_accounted_algorithm_state_bytes", "accounting_version", "start_utc",
+        "update_every", "update_mode", "hot_sources", "epoch", "cap", "start_utc",
         "elapsed_wall_s", "peak_child_rss_kb", "exit_code", "trace_sha256", "updates",
-        "increase_updates", "decrease_updates", "unchanged_updates", "algorithm_ns",
-        "cold_queries", "resident_queries", "promotions", "evictions", "rebuilds",
-        "repair_aborts",
+        "increase_updates", "decrease_updates", "unchanged_updates", *EXPORT_FIELDS,
     ]
-    phase_stats = PHASE_FIELDS[12:]
     failed = False
     trace_signatures = {}
 
@@ -110,19 +112,16 @@ def main():
                             order = BASELINES[rotation:] + BASELINES[:rotation]
                             for idx, baseline in enumerate(order):
                                 key = f"cell{cell:03d}-rep{rep:02d}-{baseline}"
-                                cmd = [
-                                    str(binary), str(graph), baseline, family,
-                                    str(args.queries), str(ue), str(args.hot_sources),
-                                    str(args.epoch), str(seed), str(cap), args.update_mode,
-                                ]
+                                cmd = [str(binary), str(graph), baseline, family,
+                                       str(args.queries), str(ue), str(args.hot_sources),
+                                       str(args.epoch), str(seed), str(cap), args.update_mode]
                                 started = dt.datetime.now(dt.timezone.utc).isoformat()
                                 time_file = out / f"{key}.time"
                                 t0 = time.monotonic()
                                 try:
                                     proc = subprocess.run(
                                         ["/usr/bin/time", "-f", "%M", "-o", str(time_file), *cmd],
-                                        capture_output=True, text=True, timeout=args.timeout, check=False,
-                                    )
+                                        capture_output=True, text=True, timeout=args.timeout, check=False)
                                     rc, stdout, stderr = proc.returncode, proc.stdout, proc.stderr
                                 except subprocess.TimeoutExpired as exc:
                                     rc = 124
@@ -135,71 +134,58 @@ def main():
                                 wall = time.monotonic() - t0
                                 (out / f"{key}.stdout").write_text(stdout)
                                 (out / f"{key}.stderr").write_text(stderr)
-                                values = stdout.strip().splitlines()
                                 row = dict(
                                     cell=cell, repeat=rep, order=idx, baseline=baseline,
                                     family=family, seed=seed, queries=args.queries,
                                     update_every=ue, update_mode=args.update_mode,
                                     hot_sources=args.hot_sources, epoch=args.epoch, cap=cap,
                                     start_utc=started, elapsed_wall_s=f"{wall:.6f}",
-                                    peak_child_rss_kb=(time_file.read_text().strip()
-                                                       if time_file.is_file() else "NA"),
+                                    peak_child_rss_kb=(time_file.read_text().strip() if time_file.is_file() else "NA"),
                                     exit_code=rc, trace_sha256="NA", updates="NA",
-                                    increase_updates="NA", decrease_updates="NA",
-                                    unchanged_updates="NA",
-                                    **{f: "NA" for f in phase_stats},
+                                    increase_updates="NA", decrease_updates="NA", unchanged_updates="NA",
+                                    **{f: "NA" for f in EXPORT_FIELDS},
                                 )
 
-                                parts = None
+                                parsed = None
+                                values = stdout.strip().splitlines()
                                 if rc == 0 and len(values) == 1:
-                                    candidate = values[0].split(",")
-                                    if len(candidate) == len(PHASE_FIELDS) and candidate[0] == baseline:
-                                        parts = candidate
-                                        parsed = dict(zip(PHASE_FIELDS, candidate))
-                                        row.update({f: parsed[f] for f in phase_stats})
-                                        row["trace_sha256"] = parsed["trace_sha256"]
-                                        row["updates"] = parsed["updates"]
-                                        row["increase_updates"] = parsed["increase_count"]
-                                        row["decrease_updates"] = parsed["decrease_count"]
-                                        row["unchanged_updates"] = str(
-                                            int(parsed["updates"]) - int(parsed["increase_count"])
-                                            - int(parsed["decrease_count"])
-                                        )
-                                    else:
+                                    try:
+                                        parsed = parse_phase_line(values[0])
+                                        if parsed["baseline"] != baseline or parsed["schema_version"] != "2":
+                                            raise ValueError("unexpected phase row")
+                                        validate_v2_reconciliation(parsed)
+                                    except (ValueError, KeyError):
+                                        parsed = None
                                         rc = 98
                                 elif rc == 0:
                                     rc = 98
+
+                                if parsed is not None:
+                                    row.update({f: parsed[f] for f in EXPORT_FIELDS})
+                                    row["trace_sha256"] = parsed["trace_sha256"]
+                                    row["updates"] = parsed["updates"]
+                                    row["increase_updates"] = parsed["increase_count"]
+                                    row["decrease_updates"] = parsed["decrease_count"]
+                                    row["unchanged_updates"] = str(
+                                        int(parsed["updates"]) - int(parsed["increase_count"]) - int(parsed["decrease_count"]))
 
                                 trace = TRACE_RE.search(stderr)
                                 if rc == 0 and trace is None:
                                     rc = 97
                                 if trace is not None:
                                     sha, queries, total, inc, dec, unchanged, mode = trace.groups()
-                                    signature = (
-                                        sha, int(queries), int(total), int(inc), int(dec),
-                                        int(unchanged), mode,
-                                    )
+                                    signature = (sha, int(queries), int(total), int(inc), int(dec), int(unchanged), mode)
                                     if row["trace_sha256"] == "NA":
-                                        row.update(
-                                            trace_sha256=sha,
-                                            updates=total,
-                                            increase_updates=inc,
-                                            decrease_updates=dec,
-                                            unchanged_updates=unchanged,
-                                        )
+                                        row.update(trace_sha256=sha, updates=total,
+                                                   increase_updates=inc, decrease_updates=dec,
+                                                   unchanged_updates=unchanged)
                                     if rc == 0 and mode != args.update_mode:
                                         rc = 97
-                                    if rc == 0 and parts is not None:
-                                        parsed = dict(zip(PHASE_FIELDS, parts))
-                                        if parsed["trace_sha256"] != sha:
-                                            rc = 97
-                                        if int(parsed["queries"]) != int(queries):
-                                            rc = 97
-                                        if int(parsed["updates"]) != int(total):
-                                            rc = 97
-                                        if int(parsed["increase_count"]) != int(inc):
-                                            rc = 97
-                                        if int(parsed["decrease_count"]) != int(dec):
+                                    if rc == 0 and parsed is not None:
+                                        if parsed["trace_sha256"] != sha or int(parsed["queries"]) != int(queries) \
+                                                or int(parsed["updates"]) != int(total) \
+                                                or int(parsed["increase_count"]) != int(inc) \
+                                                or int(parsed["decrease_count"]) != int(dec):
                                             rc = 97
                                     expected = trace_signatures.setdefault(cell, signature)
                                     if rc == 0 and signature != expected:
@@ -209,27 +195,17 @@ def main():
                                         rc = 97
 
                                 row["exit_code"] = rc
-                                writer.writerow(row)
-                                stream.flush()
-                                print(
-                                    f"{key} exit={rc} wall={wall:.3f}s "
-                                    f"sha={row['trace_sha256']} updates={row['updates']} "
-                                    f"+{row['increase_updates']} -{row['decrease_updates']}",
-                                    flush=True,
-                                )
+                                writer.writerow(row); stream.flush()
+                                print(f"{key} exit={rc} wall={wall:.3f}s sha={row['trace_sha256']} "
+                                      f"updates={row['updates']} +{row['increase_updates']} -{row['decrease_updates']} "
+                                      f"schema={row['schema_version']}", flush=True)
                                 if rc:
-                                    failed = True
-                                    break
-                            if failed:
-                                break
-                        if failed:
-                            break
-                    if failed:
-                        break
-                if failed:
-                    break
-            if failed:
-                break
+                                    failed = True; break
+                            if failed: break
+                        if failed: break
+                    if failed: break
+                if failed: break
+            if failed: break
     return 1 if failed else 0
 
 

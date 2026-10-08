@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Equal-byte B2L/B3L/B4 matched-cell runner for PR43. Stdlib only."""
+"""Equal-byte B2L/B3L/B4 matched-cell runner. Stdlib only."""
 
 import argparse
 import csv
@@ -13,14 +13,19 @@ import subprocess
 import sys
 import time
 
+from phase_schema import parse_phase_line, validate_v2_reconciliation
+
 BASELINES = ("B2L", "B3L", "B4")
-PHASE_FIELDS = (
-    "baseline", "family", "seed", "trace_sha256", "queries", "updates",
-    "increase_count", "decrease_count", "update_every", "hot_sources", "epoch",
-    "cap", "persistent_state_budget_bytes", "accounted_algorithm_state_bytes",
-    "peak_accounted_algorithm_state_bytes", "accounting_version", "algorithm_ns",
-    "cold_queries", "resident_queries", "promotions", "evictions", "rebuilds",
-    "repair_aborts",
+TELEMETRY_FIELDS = (
+    "schema_version", "oracle_ns", "algorithm_ns", "query_ns", "update_ns",
+    "operation_p50_ns", "operation_p95_ns", "query_p50_ns", "query_p95_ns",
+    "update_p50_ns", "update_p95_ns", "cooldown_blocks", "admission_rejections",
+    "filtered_updates", "decrease_repairs", "increase_repairs",
+    "memory_budget_rejections", "memory_metadata_prunes", "b4_query_time_ns",
+    "b4_update_time_ns", "b4_cold_query_ns", "b4_resident_query_ns",
+    "b4_query_policy_ns", "b4_promotion_ns", "b4_eviction_ns",
+    "b4_graph_update_ns", "b4_decrease_repair_ns", "b4_increase_repair_ns",
+    "b4_rebuild_ns", "b4_controller_ns", "b4_update_policy_ns",
 )
 
 
@@ -91,7 +96,8 @@ def main():
         p.error("binary and graph must exist")
 
     manifest = {
-        "schema": "ades-pr43-equal-byte-v1",
+        "schema": "ades-pr44-equal-byte-v2",
+        "phase_schema_version": 2,
         "claim_ids": ["C1", "C2", "C3"],
         "utc_started": dt.datetime.now(dt.timezone.utc).isoformat(),
         "git_commit": os.environ.get("GITHUB_SHA", "local-unpinned"),
@@ -104,6 +110,7 @@ def main():
         "comparison_class": "equal logical persistent-state byte budget; source-count ceiling nonbinding",
         "memory_metric": "accounted_algorithm_state_bytes; RSS reported separately",
         "trace_identity": "canonical operation stream SHA-256",
+        "timing_contract": "oracle excluded; algorithm_ns=query_ns+update_ns; B4 components disjoint",
         "config": {k: v for k, v in vars(args).items()
                    if k not in ("binary", "graph", "output")},
     }
@@ -114,7 +121,8 @@ def main():
         "update_every", "update_mode", "hot_sources", "epoch", "budget_bytes",
         "trace_sha256", "updates", "increase_count", "decrease_count",
         "source_cap", "accounted_algorithm_state_bytes",
-        "peak_accounted_algorithm_state_bytes", "accounting_version", "algorithm_ns",
+        "peak_accounted_algorithm_state_bytes", "accounting_version",
+        *TELEMETRY_FIELDS,
         "cold_queries", "resident_queries", "promotions", "evictions", "rebuilds",
         "repair_aborts", "peak_child_rss_kb", "elapsed_wall_s", "start_utc",
         "exit_code", "claim_ids",
@@ -156,7 +164,8 @@ def main():
                                     "decrease_count": "NA", "source_cap": "NA",
                                     "accounted_algorithm_state_bytes": "NA",
                                     "peak_accounted_algorithm_state_bytes": "NA",
-                                    "accounting_version": "NA", "algorithm_ns": "NA",
+                                    "accounting_version": "NA",
+                                    **{f: "NA" for f in TELEMETRY_FIELDS},
                                     "cold_queries": "NA", "resident_queries": "NA",
                                     "promotions": "NA", "evictions": "NA",
                                     "rebuilds": "NA", "repair_aborts": "NA",
@@ -169,10 +178,13 @@ def main():
                                 lines = stdout.strip().splitlines()
                                 parsed = None
                                 if rc == 0 and len(lines) == 1:
-                                    parts = lines[0].split(",")
-                                    if len(parts) == len(PHASE_FIELDS) and parts[0] == baseline:
-                                        parsed = dict(zip(PHASE_FIELDS, parts))
-                                    else:
+                                    try:
+                                        parsed = parse_phase_line(lines[0])
+                                        if parsed["baseline"] != baseline or parsed["schema_version"] != "2":
+                                            raise ValueError("unexpected phase row")
+                                        validate_v2_reconciliation(parsed)
+                                    except (ValueError, KeyError):
+                                        parsed = None
                                         rc = 98
                                 elif rc == 0:
                                     rc = 98
@@ -187,7 +199,6 @@ def main():
                                         accounted_algorithm_state_bytes=parsed["accounted_algorithm_state_bytes"],
                                         peak_accounted_algorithm_state_bytes=parsed["peak_accounted_algorithm_state_bytes"],
                                         accounting_version=parsed["accounting_version"],
-                                        algorithm_ns=parsed["algorithm_ns"],
                                         cold_queries=parsed["cold_queries"],
                                         resident_queries=parsed["resident_queries"],
                                         promotions=parsed["promotions"],
@@ -195,6 +206,7 @@ def main():
                                         rebuilds=parsed["rebuilds"],
                                         repair_aborts=parsed["repair_aborts"],
                                     )
+                                    row.update({f: parsed[f] for f in TELEMETRY_FIELDS})
                                     if int(parsed["persistent_state_budget_bytes"]) != budget:
                                         rc = 96
                                     if int(parsed["accounted_algorithm_state_bytes"]) > budget:
@@ -222,7 +234,7 @@ def main():
                                     f"{key} budget={budget} exit={rc} "
                                     f"accounted={row['accounted_algorithm_state_bytes']} "
                                     f"peak={row['peak_accounted_algorithm_state_bytes']} "
-                                    f"sha={row['trace_sha256']}",
+                                    f"sha={row['trace_sha256']} schema={row['schema_version']}",
                                     flush=True,
                                 )
                                 if rc:
@@ -240,11 +252,12 @@ def main():
                 break
 
     summary = {
-        "schema": "ades-pr43-equal-byte-v1",
+        "schema": "ades-pr44-equal-byte-v2",
+        "phase_schema_version": 2,
         "claim_ids": ["C1", "C2", "C3"],
         "status": "PASS" if not failed else "FAIL",
         "cells_attempted": cell,
-        "rule": "same budget + accounting version + trace identity; peak accounted bytes <= budget",
+        "rule": "same budget + accounting version + trace identity; peak accounted bytes <= budget; telemetry reconciles",
     }
     (out / "SUMMARY.json").write_text(json.dumps(summary, indent=2) + "\n")
     return 1 if failed else 0
