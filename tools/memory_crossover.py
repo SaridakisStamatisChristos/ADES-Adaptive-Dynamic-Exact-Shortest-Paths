@@ -8,7 +8,6 @@ import json
 import os
 from pathlib import Path
 import platform
-import resource
 import subprocess
 import sys
 import time
@@ -83,10 +82,10 @@ def main():
                                        str(args.queries), str(ue), str(args.hot_sources),
                                        str(args.epoch), str(seed), str(cap)]
                                 started = dt.datetime.now(dt.timezone.utc).isoformat()
-                                before = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+                                time_file = out / f"{key}.time"
                                 t0 = time.monotonic()
                                 try:
-                                    proc = subprocess.run(cmd, capture_output=True, text=True,
+                                    proc = subprocess.run(["/usr/bin/time", "-f", "%M", "-o", str(time_file), *cmd], capture_output=True, text=True,
                                                           timeout=args.timeout, check=False)
                                     rc, stdout, stderr = proc.returncode, proc.stdout, proc.stderr
                                 except subprocess.TimeoutExpired as exc:
@@ -95,8 +94,6 @@ def main():
                                     stderr = (exc.stderr or b"").decode(errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
                                     stderr += "\nTIMEOUT\n"
                                 wall = time.monotonic() - t0
-                                # ru_maxrss is a cumulative child high-water mark, not a per-process peak.
-                                # Use GNU time for accurate per-process peak RSS instead (below).
                                 (out / f"{key}.stdout").write_text(stdout)
                                 (out / f"{key}.stderr").write_text(stderr)
                                 values = stdout.strip().splitlines()
@@ -104,7 +101,7 @@ def main():
                                            family=family, seed=seed, queries=args.queries,
                                            update_every=ue, hot_sources=args.hot_sources,
                                            epoch=args.epoch, cap=cap, start_utc=started,
-                                           elapsed_wall_s=f"{wall:.6f}", peak_child_rss_kb="NA",
+                                           elapsed_wall_s=f"{wall:.6f}", peak_child_rss_kb=time_file.read_text().strip() if time_file.is_file() else "NA",
                                            exit_code=rc, **{f: "NA" for f in PHASE_FIELDS[9:]})
                                 if rc == 0 and len(values) == 1:
                                     parts = values[0].split(",")
