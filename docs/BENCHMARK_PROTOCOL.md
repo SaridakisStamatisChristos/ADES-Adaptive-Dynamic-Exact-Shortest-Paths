@@ -2,6 +2,14 @@
 
 ADES benchmark results are accepted only when every query result for every baseline matches a fresh-Dijkstra oracle on the identical deterministic trace.
 
+## Publication-contract binding
+
+Publication-facing experiments created after PR41 are governed by `docs/PUBLICATION_CONTRACT.md`.
+
+Each such experiment specification, manifest, or archived evidence package must identify the publication claim IDs it addresses (for example `C1`, `C4`, or `C-SOTA`). An experiment without a declared claim mapping is exploratory and cannot later become central confirmatory evidence without an explicit protocol revision.
+
+The publication contract controls scientific scope, claim boundaries, metric meanings, fairness rules, and evidence interpretation. This benchmark protocol controls lower-level execution mechanics. If the two documents appear inconsistent, the stricter evidence requirement applies until the inconsistency is resolved explicitly.
+
 ## Baselines
 
 - **B0** — fresh exact Dijkstra per query.
