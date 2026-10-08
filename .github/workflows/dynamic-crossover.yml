@@ -1,5 +1,12 @@
 name: ADES dynamic crossover evidence
 on:
+  pull_request:
+    paths:
+      - 'benchmarks/phase_diagram.cpp'
+      - 'tools/memory_crossover.py'
+      - 'tools/analyze_crossover.py'
+      - '.github/workflows/dynamic-crossover.yml'
+      - 'docs/DYNAMIC_CROSSOVER_PR39.md'
   workflow_dispatch:
     inputs:
       queries:
@@ -15,7 +22,36 @@ permissions:
   contents: read
 
 jobs:
+  smoke:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Verify New York graph
+        run: bash tools/verify_ny_dimacs.sh benchmarks/data
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+      - name: Exercise alternating increases and decreases
+        run: |
+          python3 tools/memory_crossover.py \
+            --graph benchmarks/data/USA-road-d.NY.gr.gz \
+            --output results/dynamic-crossover-smoke \
+            --queries 12 --repeats 1 --caps 2 --seeds 7 \
+            --families uniform --update-every 5 \
+            --update-mode alternating --require-both-update-directions \
+            --timeout 120
+          python3 tools/analyze_crossover.py \
+            results/dynamic-crossover-smoke/measurements.csv \
+            --output-dir results/dynamic-crossover-smoke
+
   compare:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
