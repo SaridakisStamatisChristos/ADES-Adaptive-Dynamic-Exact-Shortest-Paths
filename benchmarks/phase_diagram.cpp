@@ -1,6 +1,7 @@
 #include "ades/ades.hpp"
 #include "ades/baselines.hpp"
 #include "ades/bounded_baselines.hpp"
+#include "ades/memory_budget.hpp"
 #include "ades/trace.hpp"
 
 #include <algorithm>
@@ -95,7 +96,6 @@ static std::vector<Op> make_trace(const Graph& g, const std::string& family,
       Weight nw = old;
 
       if (update_mode == "random") {
-        // Preserve the legacy PR37 trace semantics and RNG sequence.
         nw = (r() & 1)
                  ? old + 1 + (r() % 31)
                  : (old ? old - std::min<Weight>(
@@ -132,11 +132,8 @@ static std::vector<TraceOp> canonicalize(const std::vector<Op>& ops) {
   std::vector<TraceOp> trace;
   trace.reserve(ops.size());
   for (const auto& op : ops) {
-    if (op.update) {
-      trace.push_back(TraceOp::update(op.a, op.old_w, op.w));
-    } else {
-      trace.push_back(TraceOp::query(op.a, op.b));
-    }
+    if (op.update) trace.push_back(TraceOp::update(op.a, op.old_w, op.w));
+    else trace.push_back(TraceOp::query(op.a, op.b));
   }
   return trace;
 }
@@ -144,10 +141,8 @@ static std::vector<TraceOp> canonicalize(const std::vector<Op>& ops) {
 static std::vector<Distance> oracle(Graph g, const std::vector<Op>& ops) {
   std::vector<Distance> x;
   for (const auto& o : ops) {
-    if (o.update)
-      g.update_weight(o.a, o.w);
-    else
-      x.push_back(dijkstra(g, o.a).dist[o.b]);
+    if (o.update) g.update_weight(o.a, o.w);
+    else x.push_back(dijkstra(g, o.a).dist[o.b]);
   }
   return x;
 }
@@ -158,8 +153,7 @@ static std::uint64_t run(E& e, const std::vector<Op>& ops,
   std::size_t qi = 0;
   auto s = Clock::now();
   for (const auto& o : ops) {
-    if (o.update)
-      e.update(o.a, o.w);
+    if (o.update) e.update(o.a, o.w);
     else if (e.query(o.a, o.b) != ref[qi++]) {
       std::cerr << "exactness failure\n";
       std::exit(3);
@@ -177,12 +171,29 @@ struct B1 {
   void update(std::uint32_t e, Weight w) { g.update_weight(e, w); }
 };
 
+static std::uint64_t persistent_budget_from_env() {
+  const char* raw = std::getenv("ADES_PERSISTENT_STATE_BUDGET_BYTES");
+  if (!raw || !*raw) return 0;
+  std::string value(raw);
+  std::size_t pos = 0;
+  std::uint64_t budget = 0;
+  try {
+    budget = std::stoull(value, &pos);
+  } catch (const std::exception&) {
+    throw std::runtime_error("invalid ADES_PERSISTENT_STATE_BUDGET_BYTES");
+  }
+  if (pos != value.size() || !budget)
+    throw std::runtime_error("invalid ADES_PERSISTENT_STATE_BUDGET_BYTES");
+  return budget;
+}
+
 int main(int argc, char** argv) {
   try {
     if (argc < 9) {
       std::cerr << "usage: ades_phase graph B1|B2|B3|B4|B2L|B3L|ALL family "
                    "queries update_every hot_sources epoch seed [cap] "
-                   "[random|alternating]\n";
+                   "[random|alternating]\n"
+                   "optional env: ADES_PERSISTENT_STATE_BUDGET_BYTES=N\n";
       return 2;
     }
 
@@ -195,8 +206,13 @@ int main(int argc, char** argv) {
     std::uint64_t seed = std::strtoull(argv[8], nullptr, 10);
     std::size_t cap = argc > 9 ? std::strtoull(argv[9], nullptr, 10) : 8;
     std::string update_mode = argc > 10 ? argv[10] : "random";
+    const auto persistent_budget = persistent_budget_from_env();
 
-    if ((base == "B2L" || base == "B3L") && cap == 0) {
+    if (persistent_budget && (base == "B2" || base == "B3" || base == "ALL")) {
+      std::cerr << "persistent byte-budget mode is supported by B1, B2L, B3L and B4; unbounded B2/B3 are not admissible\n";
+      return 2;
+    }
+    if ((base == "B2L" || base == "B3L") && cap == 0 && !persistent_budget) {
       std::cerr << "bounded comparator requires cap > 0\n";
       return 2;
     }
@@ -204,6 +220,12 @@ int main(int argc, char** argv) {
       std::cerr << "update mode must be random or alternating\n";
       return 2;
     }
+
+    // In equal-byte mode the source-count ceiling is deliberately made
+    // nonbinding; the common persistent-state byte budget controls residency.
+    std::size_t effective_cap = cap;
+    if (persistent_budget && (base == "B2L" || base == "B3L" || base == "B4"))
+      effective_cap = std::max<std::size_t>(1, g.vertex_count());
 
     auto ops = make_trace(g, family, seed, nq, ue, hs, ep, update_mode);
     const auto canonical = canonicalize(ops);
@@ -221,9 +243,6 @@ int main(int argc, char** argv) {
               << " unchanged=" << unchanged
               << " mode=" << update_mode << "\n";
 
-    // A conservative, allocation-free preflight for the unbounded resident
-    // baselines. It counts unique query sources, not queries; it does not alter
-    // trace semantics.
     std::unordered_set<std::uint32_t> distinct;
     for (const auto& op : ops)
       if (!op.update) distinct.insert(op.a);
@@ -241,30 +260,19 @@ int main(int argc, char** argv) {
     std::cerr << "MEMORY_PREFLIGHT baseline=" << base << " vertices=" << n
               << " distinct_sources=" << sources
               << " resident_state_payload_bytes=" << resident_bytes
-              << " estimate_type="
-                 "lower_bound_excludes_graph_containers_allocator_and_"
-                 "temporaries\n";
+              << " estimate_type=lower_bound_excludes_graph_containers_allocator_and_temporaries\n";
 
     if (const char* raw = std::getenv("ADES_MAX_RESIDENT_BYTES");
         raw && *raw && (base == "B2" || base == "B3" || base == "ALL")) {
       std::string limit(raw);
       std::size_t pos = 0;
       std::uint64_t budget = 0;
-      try {
-        budget = std::stoull(limit, &pos);
-      } catch (const std::exception&) {
-        std::cerr << "invalid ADES_MAX_RESIDENT_BYTES\n";
-        return 2;
-      }
-      if (pos != limit.size() || !budget) {
-        std::cerr << "invalid ADES_MAX_RESIDENT_BYTES\n";
-        return 2;
-      }
+      try { budget = std::stoull(limit, &pos); }
+      catch (const std::exception&) { std::cerr << "invalid ADES_MAX_RESIDENT_BYTES\n"; return 2; }
+      if (pos != limit.size() || !budget) { std::cerr << "invalid ADES_MAX_RESIDENT_BYTES\n"; return 2; }
       std::cerr << "MEMORY_PREFLIGHT budget_bytes=" << budget << "\n";
       if (overflow || resident_bytes > budget) {
-        std::cerr
-            << "MEMORY_PREFLIGHT REJECT: resident payload lower bound exceeds "
-               "budget; no baseline executed\n";
+        std::cerr << "MEMORY_PREFLIGHT REJECT: resident payload lower bound exceeds budget; no baseline executed\n";
         return 4;
       }
     }
@@ -274,7 +282,11 @@ int main(int argc, char** argv) {
       std::cout << b << ',' << family << ',' << seed << ',' << sha << ','
                 << counts.query_count << ',' << counts.update_count << ','
                 << counts.increase_count << ',' << counts.decrease_count << ','
-                << ue << ',' << hs << ',' << ep << ',' << cap << ',' << ns << ','
+                << ue << ',' << hs << ',' << ep << ',' << effective_cap << ','
+                << st.persistent_state_budget_bytes << ','
+                << st.accounted_algorithm_state_bytes << ','
+                << st.peak_accounted_algorithm_state_bytes << ','
+                << kPersistentStateAccountingVersion << ',' << ns << ','
                 << st.cold_queries << ',' << st.resident_queries << ','
                 << st.promotions << ',' << st.evictions << ',' << st.rebuilds
                 << ',' << st.repair_aborts << '\n';
@@ -286,6 +298,7 @@ int main(int argc, char** argv) {
       if (b == "B1") {
         B1 e{g};
         ns = run(e, ops, ref);
+        st.persistent_state_budget_bytes = persistent_budget;
       } else if (b == "B2") {
         AlwaysResident e(g, ResidentMode::FullRebuild);
         ns = run(e, ops, ref);
@@ -295,23 +308,42 @@ int main(int argc, char** argv) {
       } else if (b == "B2L" || b == "B3L") {
         BoundedResident e(g, b == "B2L" ? ResidentMode::FullRebuild
                                          : ResidentMode::LocalRepair,
-                          cap);
+                          effective_cap, persistent_budget);
         ns = run(e, ops, ref);
         st.cold_queries = e.misses();
         st.resident_queries = e.hits();
         st.evictions = e.evictions();
+        st.persistent_state_budget_bytes = e.persistent_state_budget_bytes();
+        st.accounted_algorithm_state_bytes = e.accounted_algorithm_state_bytes();
+        st.peak_accounted_algorithm_state_bytes = e.peak_accounted_algorithm_state_bytes();
         std::cerr << "BOUNDED_RESIDENCY baseline=" << b
-                  << " cap_sources=" << cap
+                  << " cap_sources=" << effective_cap
+                  << " budget_bytes=" << e.persistent_state_budget_bytes()
+                  << " accounted_bytes=" << e.accounted_algorithm_state_bytes()
+                  << " peak_accounted_bytes=" << e.peak_accounted_algorithm_state_bytes()
+                  << " accounting_version=" << kPersistentStateAccountingVersion
                   << " final_resident=" << e.resident_count()
                   << " misses=" << e.misses() << " hits=" << e.hits()
                   << " evictions=" << e.evictions() << "\n";
       } else if (b == "B4") {
         Config cfg;
-        cfg.resident_cap = cap;
+        cfg.resident_cap = effective_cap;
+        cfg.persistent_state_budget_bytes = persistent_budget;
         ADES e(g, cfg);
         ns = run(e, ops, ref);
         st = e.stats();
+        std::cerr << "ADES_MEMORY budget_bytes=" << st.persistent_state_budget_bytes
+                  << " accounted_bytes=" << st.accounted_algorithm_state_bytes
+                  << " peak_accounted_bytes=" << st.peak_accounted_algorithm_state_bytes
+                  << " accounting_version=" << kPersistentStateAccountingVersion
+                  << " budget_rejections=" << st.memory_budget_rejections
+                  << " metadata_prunes=" << st.memory_metadata_prunes << "\n";
       } else {
+        return false;
+      }
+      if (persistent_budget &&
+          st.peak_accounted_algorithm_state_bytes > persistent_budget) {
+        std::cerr << "persistent-state budget violation\n";
         return false;
       }
       emit(b, ns, st);

@@ -19,6 +19,10 @@ add_executable(ades_trace_identity_tests tests/trace_identity.cpp)
 target_link_libraries(ades_trace_identity_tests PRIVATE ades)
 add_test(NAME ades_trace_identity_tests COMMAND ades_trace_identity_tests)
 
+add_executable(ades_memory_budget_tests tests/memory_budget.cpp)
+target_link_libraries(ades_memory_budget_tests PRIVATE ades)
+add_test(NAME ades_memory_budget_tests COMMAND ades_memory_budget_tests)
+
 add_executable(ades_bench benchmarks/runner.cpp)
 target_link_libraries(ades_bench PRIVATE ades)
 

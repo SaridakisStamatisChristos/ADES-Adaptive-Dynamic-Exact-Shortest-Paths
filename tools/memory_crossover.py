@@ -17,8 +17,10 @@ BASELINES = ("B2L", "B3L", "B4")
 PHASE_FIELDS = (
     "baseline", "family", "seed", "trace_sha256", "queries", "updates",
     "increase_count", "decrease_count", "update_every", "hot_sources", "epoch",
-    "cap", "algorithm_ns", "cold_queries", "resident_queries", "promotions",
-    "evictions", "rebuilds", "repair_aborts",
+    "cap", "persistent_state_budget_bytes", "accounted_algorithm_state_bytes",
+    "peak_accounted_algorithm_state_bytes", "accounting_version", "algorithm_ns",
+    "cold_queries", "resident_queries", "promotions", "evictions", "rebuilds",
+    "repair_aborts",
 )
 TRACE_RE = re.compile(
     r"TRACE_IDENTITY sha256=([0-9a-f]{64}) queries=(\d+) updates=(\d+) "
@@ -74,7 +76,7 @@ def main():
         python=sys.version,
         runner=os.environ.get("RUNNER_NAME", "local"),
         config={k: v for k, v in vars(args).items() if k not in ("binary", "graph", "output")},
-        comparison_class="matched-source-cap; NOT equal-RSS",
+        comparison_class="matched-source-cap; NOT equal-byte publication evidence",
         evidence_class="diagnostic; exact answers checked against independent Dijkstra oracle",
         trace_identity="canonical operation stream SHA-256",
     )
@@ -82,7 +84,9 @@ def main():
 
     fields = [
         "cell", "repeat", "order", "baseline", "family", "seed", "queries",
-        "update_every", "update_mode", "hot_sources", "epoch", "cap", "start_utc",
+        "update_every", "update_mode", "hot_sources", "epoch", "cap",
+        "persistent_state_budget_bytes", "accounted_algorithm_state_bytes",
+        "peak_accounted_algorithm_state_bytes", "accounting_version", "start_utc",
         "elapsed_wall_s", "peak_child_rss_kb", "exit_code", "trace_sha256", "updates",
         "increase_updates", "decrease_updates", "unchanged_updates", "algorithm_ns",
         "cold_queries", "resident_queries", "promotions", "evictions", "rebuilds",

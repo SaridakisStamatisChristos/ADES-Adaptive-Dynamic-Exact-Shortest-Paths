@@ -1,0 +1,77 @@
+name: ADES equal-byte budget gate
+on:
+  pull_request:
+    paths:
+      - 'include/ades/memory_budget.hpp'
+      - 'include/ades/bounded_baselines.hpp'
+      - 'include/ades/ades.hpp'
+      - 'src/ades.cpp'
+      - 'benchmarks/phase_diagram.cpp'
+      - 'tools/equal_byte_crossover.py'
+      - 'tests/memory_budget.cpp'
+      - '.github/workflows/equal-byte-budget.yml'
+  workflow_dispatch:
+    inputs:
+      budget_bytes:
+        description: 'Logical persistent-state budget per algorithm'
+        required: true
+        default: '67108864'
+      queries:
+        description: 'Queries per matched cell'
+        required: true
+        default: '100'
+
+permissions:
+  contents: read
+
+jobs:
+  equal-byte:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Verify New York graph
+        run: bash tools/verify_ny_dimacs.sh benchmarks/data
+      - name: Validate Python
+        run: python3 -m py_compile tools/equal_byte_crossover.py tools/memory_crossover.py
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+      - name: PR43 equal-byte smoke
+        if: github.event_name == 'pull_request'
+        run: |
+          python3 tools/equal_byte_crossover.py \
+            --graph benchmarks/data/USA-road-d.NY.gr.gz \
+            --output results/equal-byte-smoke \
+            --budgets-bytes 16777216 \
+            --queries 12 --repeats 1 --seeds 7 \
+            --families single-hot --update-every 5 \
+            --update-mode alternating --hot-sources 2 --timeout 180
+      - name: Manual equal-byte run
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          BUDGET: ${{ inputs.budget_bytes }}
+          QUERIES: ${{ inputs.queries }}
+        run: |
+          set -euo pipefail
+          [[ "$BUDGET" =~ ^[1-9][0-9]*$ ]]
+          [[ "$QUERIES" =~ ^[1-9][0-9]*$ ]]
+          python3 tools/equal_byte_crossover.py \
+            --graph benchmarks/data/USA-road-d.NY.gr.gz \
+            --output results/equal-byte \
+            --budgets-bytes "$BUDGET" \
+            --queries "$QUERIES" --repeats 2 --seeds 7 17 \
+            --families single-hot hot-pool --update-every 5 10 \
+            --update-mode alternating --hot-sources 4 --timeout 600
+      - name: Upload fairness evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-equal-byte-${{ github.run_id }}-${{ github.run_attempt }}
+          path: results/equal-byte*/
+          if-no-files-found: warn
+          retention-days: 30
