@@ -1,5 +1,6 @@
 #include "ades/ades.hpp"
 #include "ades/baselines.hpp"
+#include "ades/bounded_baselines.hpp"
 #include <cassert>
 #include <fstream>
 #include <iostream>
@@ -153,4 +154,38 @@ static void unbounded_baseline_residency_accounting(){
   assert(b.query(0,3)==4);assert(b.query(1,3)==2);
  }
 }
-int main(){unbounded_baseline_residency_accounting();shortest_path_corner_cases();saturating_distance_arithmetic();equal_distance_parent_cycle_prevention();dynamic_parallel_and_zero_weight_updates();epoch_membership_survives_repeated_repairs_and_wrap();repair_policy_modes_remain_exact();repair_work_accounting_is_complete();work_aware_controller_tightens_after_expensive_repairs();weak_candidate_cannot_evict_hot_resident();abort_discovery_is_read_only();repeated_reparent_preserves_spt_links();update_storm_does_not_promote_without_queries();rotating_semihot_sources_do_not_expand_cache();cost_aware_admission();decrease_requires_propagation();parent_increase_repairs_subtree();tight_nonparent_increase_cannot_be_ignored();early_abort_rebuild_is_exact();differential();std::cout<<"ADES repair tests passed\n";}
+static void bounded_comparator_exactness_and_lru(){
+ Graph g(6);auto edge=g.add_edge(0,1,1);
+ for(std::uint32_t i=1;i<5;i++)g.add_edge(i,i+1,1);
+ for(auto mode:{ResidentMode::FullRebuild,ResidentMode::LocalRepair}){
+  BoundedResident b(g,mode,2);
+  assert(b.query(0,5)==5);assert(b.query(1,5)==4);
+  assert(b.resident_count()==2);assert(b.misses()==2);
+  assert(b.query(0,5)==5);assert(b.hits()==1);
+  assert(b.query(2,5)==3);assert(b.evictions()==1);
+  assert(b.query(1,5)==4);assert(b.evictions()==2);
+  assert(b.resident_count()==2);
+  b.update(edge,10);
+  assert(b.query(0,5)==14);assert(b.query(1,5)==4);
+  assert(b.resident_count()<=2);
+  b.update(edge,0);
+  assert(b.query(0,5)==4);
+ }
+ bool rejected=false;
+ try{BoundedResident bad(g,ResidentMode::FullRebuild,0);}
+ catch(const std::invalid_argument&){rejected=true;}
+ assert(rejected);
+}
+static void bounded_comparator_differential(){
+ for(auto mode:{ResidentMode::FullRebuild,ResidentMode::LocalRepair}){
+  std::mt19937_64 rng(19);Graph g(20);
+  for(int i=0;i<100;i++){auto u=rng()%20,v=rng()%20;if(u!=v)g.add_edge(u,v,rng()%15);}
+  BoundedResident b(g,mode,3);
+  for(int i=0;i<600;i++){
+   if(i%5==0){auto id=rng()%g.edge_count();auto w=rng()%15;g.update_weight(id,w);b.update(id,w);}
+   else {auto s=rng()%20,t=rng()%20;assert(b.query(s,t)==dijkstra(g,s).dist[t]);}
+   assert(b.resident_count()<=3);
+  }
+ }
+}
+int main(){bounded_comparator_exactness_and_lru();bounded_comparator_differential();unbounded_baseline_residency_accounting();shortest_path_corner_cases();saturating_distance_arithmetic();equal_distance_parent_cycle_prevention();dynamic_parallel_and_zero_weight_updates();epoch_membership_survives_repeated_repairs_and_wrap();repair_policy_modes_remain_exact();repair_work_accounting_is_complete();work_aware_controller_tightens_after_expensive_repairs();weak_candidate_cannot_evict_hot_resident();abort_discovery_is_read_only();repeated_reparent_preserves_spt_links();update_storm_does_not_promote_without_queries();rotating_semihot_sources_do_not_expand_cache();cost_aware_admission();decrease_requires_propagation();parent_increase_repairs_subtree();tight_nonparent_increase_cannot_be_ignored();early_abort_rebuild_is_exact();differential();std::cout<<"ADES repair tests passed\n";}
