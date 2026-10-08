@@ -1,0 +1,62 @@
+name: ADES isolated B2 diagnostic
+on:
+  workflow_dispatch:
+    inputs:
+      queries:
+        description: 'Number of queries (default 2000)'
+        required: true
+        default: '2000'
+permissions:
+  contents: read
+jobs:
+  b2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Verify NY corpus
+        run: bash tools/verify_ny_dimacs.sh benchmarks/data
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+      - name: Run B2 alone (diagnostic only)
+        shell: bash
+        env:
+          QUERIES: ${{ inputs.queries }}
+        run: |
+          set -euo pipefail
+          [[ "$QUERIES" =~ ^[1-9][0-9]*$ ]]
+          mkdir -p results/b2-isolated
+          out=results/b2-isolated
+          echo 'DIAGNOSTIC ONLY — not scientific crossover evidence' > "$out/README.txt"
+          printf 'baseline,family,seed,queries,update_every,hot_sources,elapsed_seconds,max_rss_kb,exit_code\n' > "$out/metrics.csv"
+          echo "::notice::B2 start $(date -u +%Y-%m-%dT%H:%M:%SZ), queries=$QUERIES, seed=7, uniform, update_every=0, hot_sources=1"
+          set +e
+          /usr/bin/time -f '%e,%M' -o "$out/time.txt" \
+            ./build/ades_phase benchmarks/data/USA-road-d.NY.gr.gz B2 uniform "$QUERIES" 0 1 250 7 8 \
+            > "$out/B2.csv" 2> "$out/stderr.txt"
+          rc=$?
+          set -e
+          elapsed=NA
+          rss=NA
+          if [[ -s "$out/time.txt" ]]; then
+            last=$(tail -n 1 "$out/time.txt")
+            if [[ "$last" =~ ^[0-9]+([.][0-9]+)?,[0-9]+$ ]]; then
+              IFS=, read -r elapsed rss <<< "$last"
+            fi
+          fi
+          printf 'B2,uniform,7,%s,0,1,%s,%s,%s\n' "$QUERIES" "$elapsed" "$rss" "$rc" >> "$out/metrics.csv"
+          echo "::notice::B2 finish $(date -u +%Y-%m-%dT%H:%M:%SZ), exit=$rc, elapsed_s=$elapsed, max_rss_kb=$rss"
+          exit "$rc"
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-b2-isolated-${{ github.run_id }}-${{ github.run_attempt }}
+          path: results/b2-isolated/
+          if-no-files-found: warn
+          retention-days: 30
