@@ -1,0 +1,220 @@
+{
+  "schema": "ades-dataset-registry-v1",
+  "schema_version": 1,
+  "claims_addressed": ["C2", "C4", "C8", "C-SOTA"],
+  "generality_rule": {
+    "minimum_distinct_topology_classes": 5,
+    "require_non_road_topology": true,
+    "metric_variants_do_not_count_as_distinct_topologies": true
+  },
+  "datasets": [
+    {
+      "id": "dimacs-ny-distance-v1",
+      "display_name": "9th DIMACS USA road network — New York distance metric",
+      "kind": "external-committed",
+      "topology_class": "road",
+      "weight_semantics": "road-distance",
+      "format": "dimacs-sp-gzip",
+      "directed_representation": true,
+      "vertices": 264346,
+      "arcs": 733846,
+      "local_path": "benchmarks/data/USA-road-d.NY.gr.gz",
+      "sha256": "7b2446c7ffe6179efbc42af6812448e8cb782f12968ca2bb1d50d979343056d4",
+      "source": {
+        "collection": "9th DIMACS Implementation Challenge — Shortest Paths",
+        "upstream": "U.S. Census 2000 TIGER/Line-derived USA road graph",
+        "url": "http://www.diag.uniroma1.it/challenge9/data/tiger/"
+      },
+      "license": {
+        "status": "upstream-government-derived; exact DIMACS packaging terms not asserted by PR47",
+        "redistribution_review_required": true,
+        "external_third_party_data": true
+      },
+      "qualification": {
+        "scientific_use": "qualified",
+        "hash_verified": true,
+        "parser_verified": true,
+        "counts_verified_against_published_DIMACS_statistics": true
+      }
+    },
+    {
+      "id": "dimacs-ny-time-v1",
+      "display_name": "9th DIMACS USA road network — New York travel-time metric",
+      "kind": "external-committed",
+      "topology_class": "road",
+      "weight_semantics": "travel-time",
+      "format": "dimacs-sp-gzip",
+      "directed_representation": true,
+      "vertices": 264346,
+      "arcs": 733846,
+      "local_path": "benchmarks/data/USA-road-t.NY.gr.gz",
+      "sha256": "de902573142dbf12c42b065d9a6a679e4794372eb91d2748ee78089720377156",
+      "source": {
+        "collection": "9th DIMACS Implementation Challenge — Shortest Paths",
+        "upstream": "U.S. Census 2000 TIGER/Line-derived USA road graph",
+        "url": "http://www.diag.uniroma1.it/challenge9/data/tiger/"
+      },
+      "license": {
+        "status": "upstream-government-derived; exact DIMACS packaging terms not asserted by PR47",
+        "redistribution_review_required": true,
+        "external_third_party_data": true
+      },
+      "qualification": {
+        "scientific_use": "qualified",
+        "hash_verified": true,
+        "parser_verified": true,
+        "counts_verified_against_published_DIMACS_statistics": true
+      }
+    },
+    {
+      "id": "syn-grid-224x224-v1",
+      "display_name": "ADES deterministic 2-D bidirectional grid",
+      "kind": "generated",
+      "topology_class": "grid",
+      "weight_semantics": "deterministic-positive-synthetic",
+      "format": "dimacs-sp-text",
+      "directed_representation": true,
+      "vertices": 50176,
+      "arcs": 199808,
+      "local_path": "benchmarks/generated/syn-grid-224x224-v1.gr",
+      "sha256": "68ea3f6fb3351e026b850d631b3f5618a4dca8c80ba8d3ce5055543b14d04e23",
+      "generator": {
+        "tool": "tools/generate_synthetic_graphs.py",
+        "generator_version": 1,
+        "seed": 673765,
+        "parameters": {"rows": 224, "cols": 224, "bidirectional": true}
+      },
+      "license": {
+        "status": "repository-generated; no external dataset license",
+        "redistribution_review_required": false,
+        "external_third_party_data": false
+      },
+      "qualification": {
+        "scientific_use": "qualified",
+        "hash_verified": true,
+        "parser_verified": true,
+        "counts_verified_against_generator": true
+      }
+    },
+    {
+      "id": "syn-uniform-50000-d6-v1",
+      "display_name": "ADES deterministic sparse uniform-random directed graph",
+      "kind": "generated",
+      "topology_class": "uniform-random",
+      "weight_semantics": "deterministic-positive-synthetic",
+      "format": "dimacs-sp-text",
+      "directed_representation": true,
+      "vertices": 50000,
+      "arcs": 300000,
+      "local_path": "benchmarks/generated/syn-uniform-50000-d6-v1.gr",
+      "sha256": "64a62099fef989cb6979a5ea2a5de027a3086e65816635466341476fa70f94b5",
+      "generator": {
+        "tool": "tools/generate_synthetic_graphs.py",
+        "generator_version": 1,
+        "seed": 1341969,
+        "parameters": {"vertices": 50000, "out_degree": 6}
+      },
+      "license": {
+        "status": "repository-generated; no external dataset license",
+        "redistribution_review_required": false,
+        "external_third_party_data": false
+      },
+      "qualification": {
+        "scientific_use": "qualified",
+        "hash_verified": true,
+        "parser_verified": true,
+        "counts_verified_against_generator": true
+      }
+    },
+    {
+      "id": "syn-scale-free-50000-m4-v1",
+      "display_name": "ADES deterministic preferential-attachment graph",
+      "kind": "generated",
+      "topology_class": "scale-free",
+      "weight_semantics": "deterministic-positive-synthetic",
+      "format": "dimacs-sp-text",
+      "directed_representation": true,
+      "vertices": 50000,
+      "arcs": 399980,
+      "local_path": "benchmarks/generated/syn-scale-free-50000-m4-v1.gr",
+      "sha256": "05b0186a56673b5665dd773738a943bf6d8ee364088949df2ed3c69d5d222ac8",
+      "generator": {
+        "tool": "tools/generate_synthetic_graphs.py",
+        "generator_version": 1,
+        "seed": 6078959,
+        "parameters": {"vertices": 50000, "attachment_edges": 4, "bidirectional_attachment": true}
+      },
+      "license": {
+        "status": "repository-generated; no external dataset license",
+        "redistribution_review_required": false,
+        "external_third_party_data": false
+      },
+      "qualification": {
+        "scientific_use": "qualified",
+        "hash_verified": true,
+        "parser_verified": true,
+        "counts_verified_against_generator": true
+      }
+    },
+    {
+      "id": "syn-small-world-50000-k8-r10-v1",
+      "display_name": "ADES deterministic ring-lattice small-world graph",
+      "kind": "generated",
+      "topology_class": "small-world",
+      "weight_semantics": "deterministic-positive-synthetic",
+      "format": "dimacs-sp-text",
+      "directed_representation": true,
+      "vertices": 50000,
+      "arcs": 399999,
+      "local_path": "benchmarks/generated/syn-small-world-50000-k8-r10-v1.gr",
+      "sha256": "08abafb16a2f58def0f2310fdedc18d5cdc4870e51b2f3f4cda02b2c8a04de55",
+      "generator": {
+        "tool": "tools/generate_synthetic_graphs.py",
+        "generator_version": 1,
+        "seed": 369681,
+        "parameters": {"vertices": 50000, "nominal_out_degree": 8, "rewire_percent": 10}
+      },
+      "license": {
+        "status": "repository-generated; no external dataset license",
+        "redistribution_review_required": false,
+        "external_third_party_data": false
+      },
+      "qualification": {
+        "scientific_use": "qualified",
+        "hash_verified": true,
+        "parser_verified": true,
+        "counts_verified_against_generator": true
+      }
+    },
+    {
+      "id": "syn-clustered-50000-c100-d6-v1",
+      "display_name": "ADES deterministic community-clustered directed graph",
+      "kind": "generated",
+      "topology_class": "clustered",
+      "weight_semantics": "deterministic-positive-synthetic",
+      "format": "dimacs-sp-text",
+      "directed_representation": true,
+      "vertices": 50000,
+      "arcs": 300000,
+      "local_path": "benchmarks/generated/syn-clustered-50000-c100-d6-v1.gr",
+      "sha256": "787dc2f7722ce1c1dee61a465659d0c0447901ecd54e097c919ae012b9746800",
+      "generator": {
+        "tool": "tools/generate_synthetic_graphs.py",
+        "generator_version": 1,
+        "seed": 793175,
+        "parameters": {"vertices": 50000, "communities": 100, "local_out_degree": 5, "global_out_degree": 1}
+      },
+      "license": {
+        "status": "repository-generated; no external dataset license",
+        "redistribution_review_required": false,
+        "external_third_party_data": false
+      },
+      "qualification": {
+        "scientific_use": "qualified",
+        "hash_verified": true,
+        "parser_verified": true,
+        "counts_verified_against_generator": true
+      }
+    }
+  ]
+}

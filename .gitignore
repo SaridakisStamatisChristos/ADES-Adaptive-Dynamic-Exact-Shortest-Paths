@@ -2,3 +2,4 @@ build/
 *.o
 results/*.json
 !results/.gitkeep
+benchmarks/generated/*.gr
