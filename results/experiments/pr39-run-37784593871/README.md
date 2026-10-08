@@ -19,7 +19,9 @@ This directory permanently preserves the canonical evidence from successful GitH
 - `measurements.csv` — all 144 recorded baseline executions.
 - `summary.csv` — generated matched-pair descriptive summary.
 - `ANALYSIS.md` — generated descriptive analysis from the benchmark workflow.
-- `SHA256SUMS` — integrity hashes for the preserved files plus the original Actions artifact digest.
+- `SHA256SUMS` — integrity hashes for the committed files plus the original Actions artifact digest.
+
+The committed CSV files preserve every recorded value but use repository-standard LF line endings; the original artifact used CRLF for those CSVs. The original artifact CSV hashes and full ZIP digest are recorded in `SHA256SUMS` for byte-level provenance.
 
 The Actions artifact also contained 432 per-invocation `.stdout`, `.stderr`, and `.time` files. Those are redundant with the canonical tables for the retained result set and are not duplicated individually in Git history; the original artifact identity and cryptographic digest are recorded here for provenance.
 
