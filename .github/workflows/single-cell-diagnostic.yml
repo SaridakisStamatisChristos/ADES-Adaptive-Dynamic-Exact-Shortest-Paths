@@ -24,7 +24,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p results/single-cell
-          echo 'baseline,family,seed,trace_sha256,queries,updates,increase_count,decrease_count,update_every,hot_sources,epoch,cap,persistent_state_budget_bytes,accounted_algorithm_state_bytes,peak_accounted_algorithm_state_bytes,accounting_version,ns,cold_queries,resident_queries,promotions,evictions,rebuilds,repair_aborts' > results/single-cell/phase.csv
+          python3 - <<'PY' > results/single-cell/phase.csv
+          import sys
+          sys.path.insert(0,"tools")
+          from phase_schema import PHASE_FIELDS_V2
+          print(",".join(PHASE_FIELDS_V2))
+          PY
           for baseline in B1 B2 B3 B4; do
             echo "START baseline=${baseline} utc=$(date -u +%FT%TZ)"
             /usr/bin/time -v ./build/ades_phase benchmarks/data/USA-road-d.NY.gr.gz "$baseline" single-hot 10 0 1 250 7 8 >> results/single-cell/phase.csv
