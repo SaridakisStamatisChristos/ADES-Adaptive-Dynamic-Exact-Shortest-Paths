@@ -38,7 +38,7 @@ int main(int argc,char**argv){
  auto ops=make_trace(g,family,seed,nq,ue,hs,ep);auto ref=oracle(g,ops);
  std::size_t updates=0;for(auto&o:ops)updates+=o.update;
  auto emit=[&](const std::string& b,std::uint64_t ns,const Stats& st){
-  std::cout<<b<<","<<family<<","<<seed<<","<<nq<<","<<updates<<","<<ue<<","<<hs<<","<<ep<<","<<cap<<","<<ns<<","<<st.cold_queries<<","<<st.resident_queries<<","<<st.promotions<<","<<st.evictions<<","<<st.rebuilds<<","<<st.repair_aborts<<"\\n";
+  std::cout<<b<<","<<family<<","<<seed<<","<<nq<<","<<updates<<","<<ue<<","<<hs<<","<<ep<<","<<cap<<","<<ns<<","<<st.cold_queries<<","<<st.resident_queries<<","<<st.promotions<<","<<st.evictions<<","<<st.rebuilds<<","<<st.repair_aborts<<"\n";
  };
  auto one=[&](const std::string& b){
   std::uint64_t ns=0;Stats st{};
