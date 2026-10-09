@@ -34,8 +34,23 @@ struct ProgressiveQueryResult {
   bool became_complete = false;
 };
 
+enum class ProgressiveUpdateResult {
+  Filtered,
+  Repaired,
+  Invalidated,
+};
+
 ProgressiveQueryResult progressive_bidirectional_query(
     const Graph& graph, ProgressiveFrontier& frontier, std::uint32_t target);
+
+// Apply one already-committed graph update to an in-progress Dijkstra frontier.
+// Decreases are absorbed exactly unless they would improve an already-settled
+// vertex. Increases are filtered when the changed edge is not the selected
+// parent of its head; a tentative head is re-keyed exactly, while an increase
+// affecting a settled tree vertex invalidates the frontier conservatively.
+ProgressiveUpdateResult update_progressive_frontier(
+    const Graph& updated_graph, ProgressiveFrontier& frontier,
+    std::uint32_t edge_id, const Edge& old_edge);
 
 // Completes the remaining forward Dijkstra work and converts the frontier into
 // the ordinary repairable SSSP representation. Existing distance/parent arrays
