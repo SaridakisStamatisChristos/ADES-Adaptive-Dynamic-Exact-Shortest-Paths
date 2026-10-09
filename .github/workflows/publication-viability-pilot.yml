@@ -2,6 +2,9 @@ name: ADES publication viability pilot
 
 on:
   pull_request:
+  push:
+    branches:
+      - pr49-publication-viability-pilot
   workflow_dispatch:
     inputs:
       queries:
@@ -48,13 +51,13 @@ jobs:
           test -s results/pr49-pilot-smoke/manifest.json
           test -s results/pr49-pilot-smoke/SHA256SUMS
       - name: Run full frozen pilot
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         env:
           GITHUB_SHA: ${{ github.sha }}
         run: |
           python3 tools/run_publication_pilot.py \
             --repo . --build build --output results/pr49-pilot \
-            --queries '${{ inputs.queries }}'
+            --queries '${{ inputs.queries || '60' }}'
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -71,7 +74,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
       - name: Upload full pilot evidence
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
           name: ades-pr49-publication-viability-pilot
