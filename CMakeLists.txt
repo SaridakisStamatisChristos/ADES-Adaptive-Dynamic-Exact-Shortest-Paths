@@ -55,3 +55,6 @@ target_link_libraries(ades_scientific_ablations PRIVATE ades)
 
 add_executable(ades_workload_v2 tools/workload_v2.cpp)
 target_link_libraries(ades_workload_v2 PRIVATE ades)
+
+add_executable(ades_pilot_profile benchmarks/pilot_profile.cpp)
+target_link_libraries(ades_pilot_profile PRIVATE ades)

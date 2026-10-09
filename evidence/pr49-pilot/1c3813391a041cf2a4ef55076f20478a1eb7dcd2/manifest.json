@@ -1,0 +1,86 @@
+{
+  "schema": "ades-pr49-publication-viability-pilot-v1",
+  "claim_ids": [
+    "C1",
+    "C2",
+    "C3",
+    "C4",
+    "C5",
+    "C6",
+    "C7",
+    "C8",
+    "C9",
+    "C-SOTA"
+  ],
+  "commit": "1c3813391a041cf2a4ef55076f20478a1eb7dcd2",
+  "mode": "pilot",
+  "graphs": [
+    {
+      "id": "ny-road-distance",
+      "sha256": "7b2446c7ffe6179efbc42af6812448e8cb782f12968ca2bb1d50d979343056d4"
+    },
+    {
+      "id": "syn-grid-224x224-v1",
+      "sha256": "68ea3f6fb3351e026b850d631b3f5618a4dca8c80ba8d3ce5055543b14d04e23"
+    },
+    {
+      "id": "syn-scale-free-50000-m4-v1",
+      "sha256": "05b0186a56673b5665dd773738a943bf6d8ee364088949df2ed3c69d5d222ac8"
+    }
+  ],
+  "families": [
+    "uniform",
+    "single-hot",
+    "churn"
+  ],
+  "update_intervals": [
+    5,
+    50
+  ],
+  "budgets_bytes": [
+    16777216,
+    67108864
+  ],
+  "seeds": [
+    7,
+    17,
+    29
+  ],
+  "repetitions_per_seed": 2,
+  "queries_per_trace": 60,
+  "update_mode": "strict-alternating",
+  "magnitude": "medium",
+  "profiles": [
+    "B2L",
+    "B3L",
+    "COLD",
+    "FREQ-LRU-REBUILD",
+    "FREQ-LRU-REPAIR",
+    "WORK-LRU-REPAIR",
+    "WORK-DEBT-REPAIR",
+    "ADES"
+  ],
+  "timing": "one comparator per process; oracle generated in a separate process and excluded from algorithm timing/RSS",
+  "statistics": "paired comparator/ADES log speedups; repetitions averaged within seed; 95% t interval across independent seeds",
+  "decision_rule": "GO requires a nonempty PR48 DIRECT external comparator set plus material controlled ADES wins; otherwise crossover/material internal signal => REFRAME; absent internal signal => NO-GO",
+  "decision": {
+    "decision": "REFRAME",
+    "reason": "The pilot shows a nontrivial operating-region/crossover signal, but the scoped SOTA headline remains blocked until a DIRECT external comparator is qualified.",
+    "headline_sota_ready": false,
+    "direct_external_comparators": [],
+    "regime_count": 36,
+    "unique_fastest_profiles": [
+      "ADES",
+      "B3L",
+      "COLD",
+      "FREQ-LRU-REBUILD",
+      "FREQ-LRU-REPAIR",
+      "WORK-DEBT-REPAIR",
+      "WORK-LRU-REPAIR"
+    ],
+    "crossover_observed": true,
+    "ades_fastest_regimes": 3,
+    "material_ades_wins_vs_freq_lru_repair": 2,
+    "material_ades_losses_vs_freq_lru_repair": 0
+  }
+}
