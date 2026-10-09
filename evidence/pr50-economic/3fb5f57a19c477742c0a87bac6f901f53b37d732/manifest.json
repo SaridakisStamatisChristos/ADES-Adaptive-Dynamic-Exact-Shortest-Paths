@@ -1,0 +1,151 @@
+{
+  "schema": "ades-pr50-predictive-economic-v1",
+  "commit": "3fb5f57a19c477742c0a87bac6f901f53b37d732",
+  "profiles": [
+    "COLD",
+    "B3L",
+    "FREQ-LRU-REPAIR",
+    "ADES",
+    "ADES-V2"
+  ],
+  "development_is_tuning_evidence": true,
+  "holdout_is_fresh_evidence": true,
+  "queries_per_trace": 60,
+  "matrices": {
+    "development": {
+      "graphs": [
+        [
+          "ny-road-distance",
+          "benchmarks/data/USA-road-d.NY.gr.gz"
+        ],
+        [
+          "syn-grid-224x224-v1",
+          "syn-grid-224x224-v1.gr"
+        ],
+        [
+          "syn-scale-free-50000-m4-v1",
+          "syn-scale-free-50000-m4-v1.gr"
+        ]
+      ],
+      "families": [
+        [
+          "uniform",
+          0
+        ],
+        [
+          "single-hot",
+          95
+        ],
+        [
+          "churn",
+          100
+        ]
+      ],
+      "intervals": [
+        5,
+        50
+      ],
+      "modes": [
+        "strict-alternating"
+      ],
+      "budgets": [
+        16777216,
+        67108864
+      ],
+      "seeds": [
+        7,
+        17,
+        29
+      ],
+      "repeats": [
+        0,
+        1
+      ]
+    },
+    "holdout": {
+      "graphs": [
+        [
+          "syn-uniform-50000-d6-v1",
+          "syn-uniform-50000-d6-v1.gr"
+        ],
+        [
+          "syn-small-world-50000-k8-r10-v1",
+          "syn-small-world-50000-k8-r10-v1.gr"
+        ],
+        [
+          "syn-clustered-50000-c100-d6-v1",
+          "syn-clustered-50000-c100-d6-v1.gr"
+        ]
+      ],
+      "families": [
+        [
+          "hot-pool",
+          85
+        ],
+        [
+          "zipf",
+          95
+        ],
+        [
+          "rotating-hot",
+          100
+        ]
+      ],
+      "intervals": [
+        2,
+        10
+      ],
+      "modes": [
+        "bursty",
+        "repeated-edge"
+      ],
+      "budgets": [
+        16777216,
+        67108864
+      ],
+      "seeds": [
+        43,
+        59,
+        83
+      ],
+      "repeats": [
+        0
+      ]
+    }
+  },
+  "graph_sha256": {
+    "development": {
+      "ny-road-distance": "7b2446c7ffe6179efbc42af6812448e8cb782f12968ca2bb1d50d979343056d4",
+      "syn-grid-224x224-v1": "68ea3f6fb3351e026b850d631b3f5618a4dca8c80ba8d3ce5055543b14d04e23",
+      "syn-scale-free-50000-m4-v1": "05b0186a56673b5665dd773738a943bf6d8ee364088949df2ed3c69d5d222ac8"
+    },
+    "holdout": {
+      "syn-uniform-50000-d6-v1": "64a62099fef989cb6979a5ea2a5de027a3086e65816635466341476fa70f94b5",
+      "syn-small-world-50000-k8-r10-v1": "08abafb16a2f58def0f2310fdedc18d5cdc4870e51b2f3f4cda02b2c8a04de55",
+      "syn-clustered-50000-c100-d6-v1": "787dc2f7722ce1c1dee61a465659d0c0447901ecd54e097c919ae012b9746800"
+    }
+  },
+  "statistics": "paired comparator/ADES-V2 log speedups; repetitions averaged within seed; 95% t interval across independent seeds",
+  "performance_gate": "informational; exactness and byte-budget failures are hard execution failures",
+  "result": {
+    "development_regimes": 36,
+    "holdout_regimes": 72,
+    "development_v2_fastest_or_within_1pct": 22,
+    "holdout_v2_fastest_or_within_1pct": 34,
+    "development_material_regressions": 6,
+    "holdout_material_regressions": 1,
+    "development_material_wins": 33,
+    "holdout_material_wins": 145,
+    "holdout_zero_material_regressions": false,
+    "fastest_profile_counts": {
+      "development:ADES": 4,
+      "development:ADES-V2": 19,
+      "development:B3L": 6,
+      "development:COLD": 4,
+      "development:FREQ-LRU-REPAIR": 3,
+      "holdout:ADES": 17,
+      "holdout:ADES-V2": 28,
+      "holdout:COLD": 27
+    }
+  }
+}
