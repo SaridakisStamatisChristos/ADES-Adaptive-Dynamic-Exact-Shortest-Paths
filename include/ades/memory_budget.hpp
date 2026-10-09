@@ -124,8 +124,7 @@ inline constexpr std::uint64_t ades_economic_recent_slot_accounted_bytes() {
   return sizeof(std::uint32_t) + 3u * sizeof(std::uint64_t) + sizeof(std::uint8_t);
 }
 
-inline constexpr std::uint64_t ades_economic_recent_table_accounted_bytes(
-    std::size_t slots) {
+inline std::uint64_t ades_economic_recent_table_accounted_bytes(std::size_t slots) {
   return accounted_mul(static_cast<std::uint64_t>(slots),
                        ades_economic_recent_slot_accounted_bytes());
 }
