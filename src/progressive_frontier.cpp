@@ -69,7 +69,8 @@ void push_or_decrease(ProgressiveFrontier& f, std::uint32_t vertex,
 }
 
 std::uint32_t pop_min(ProgressiveFrontier& f) {
-  if (f.heap_vertices.empty()) throw std::logic_error("pop from empty progressive heap");
+  if (f.heap_vertices.empty())
+    throw std::logic_error("pop from empty progressive heap");
   const auto root = f.heap_vertices.front();
   const auto last = f.heap_vertices.back();
   f.heap_vertices.pop_back();
@@ -84,13 +85,13 @@ std::uint32_t pop_min(ProgressiveFrontier& f) {
 }
 
 void expand_forward(const Graph& graph, ProgressiveFrontier& f,
-                    std::uint32_t vertex, std::uint64_t* scans) {
+                    std::uint32_t vertex) {
   const auto du = f.dist[vertex];
   for (const auto arc : graph.out(vertex)) {
-    if (scans) ++*scans;
     ++f.forward_edge_scans;
     const auto nd = sat_add(du, graph.edge(arc.edge_id).weight);
-    push_or_decrease(f, arc.to, nd, static_cast<std::int64_t>(arc.edge_id));
+    push_or_decrease(f, arc.to, nd,
+                     static_cast<std::int64_t>(arc.edge_id));
   }
 }
 
@@ -112,7 +113,8 @@ ProgressiveFrontier::ProgressiveFrontier(std::size_t vertex_count,
 
 ProgressiveQueryResult progressive_bidirectional_query(
     const Graph& graph, ProgressiveFrontier& f, std::uint32_t target) {
-  if (target >= graph.vertex_count()) throw std::out_of_range("progressive target vertex");
+  if (target >= graph.vertex_count())
+    throw std::out_of_range("progressive target vertex");
   if (f.dist.size() != graph.vertex_count() ||
       f.parent_edge.size() != graph.vertex_count() ||
       f.heap_pos.size() != graph.vertex_count())
@@ -165,10 +167,13 @@ ProgressiveQueryResult progressive_bidirectional_query(
       if (backward[u] < INF)
         best = std::min(best, sat_add(f.dist[u], backward[u]));
 
-      const auto scans_before = f.forward_edge_scans;
-      expand_forward(graph, f, u, nullptr);
-      result.forward_edge_scans += f.forward_edge_scans - scans_before;
+      const auto du = f.dist[u];
       for (const auto arc : graph.out(u)) {
+        ++result.forward_edge_scans;
+        ++f.forward_edge_scans;
+        const auto nd = sat_add(du, graph.edge(arc.edge_id).weight);
+        push_or_decrease(f, arc.to, nd,
+                         static_cast<std::int64_t>(arc.edge_id));
         if (backward[arc.to] < INF && f.dist[arc.to] < INF)
           best = std::min(best, sat_add(f.dist[arc.to], backward[arc.to]));
       }
@@ -201,7 +206,7 @@ SSSPState complete_progressive_sssp(const Graph& graph,
 
   while (!f.heap_vertices.empty()) {
     const auto u = pop_min(f);
-    expand_forward(graph, f, u, nullptr);
+    expand_forward(graph, f, u);
   }
   f.complete = true;
 
@@ -222,7 +227,8 @@ SSSPState complete_progressive_sssp(const Graph& graph,
     const auto p = graph.edge(static_cast<std::uint32_t>(parent)).from;
     const auto first = state.first_child[p];
     state.next_sibling[v] = first;
-    if (first >= 0) state.prev_sibling[static_cast<std::uint32_t>(first)] = v;
+    if (first >= 0)
+      state.prev_sibling[static_cast<std::uint32_t>(first)] = v;
     state.first_child[p] = v;
   }
   f.heap_pos.clear();
