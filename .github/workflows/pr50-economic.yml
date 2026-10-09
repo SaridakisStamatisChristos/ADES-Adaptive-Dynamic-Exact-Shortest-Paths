@@ -17,7 +17,7 @@ on:
         default: "both"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   smoke:
@@ -104,3 +104,61 @@ jobs:
           path: results/pr50-economic
           if-no-files-found: error
           retention-days: 90
+
+  persist-completed:
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[pr50-persist]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: 3fb5f57a19c477742c0a87bac6f901f53b37d732
+      SOURCE_RUN: "37892264840"
+      ARTIFACT_NAME: ades-pr50-predictive-economic-full
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pr50-predictive-economic-residency
+      - name: Download completed PR50 artifact
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/pr50-artifact
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT_NAME" --dir /tmp/pr50-artifact
+          for f in measurements.csv summary.csv confidence.csv ANALYSIS.md decision.json manifest.json; do
+            test -s "/tmp/pr50-artifact/$f"
+          done
+      - name: Commit permanent compact evidence
+        run: |
+          set -euo pipefail
+          dest="evidence/pr50-economic/${SOURCE_SHA}"
+          rm -rf "$dest"
+          mkdir -p "$dest"
+          cp /tmp/pr50-artifact/measurements.csv "$dest/"
+          cp /tmp/pr50-artifact/summary.csv "$dest/"
+          cp /tmp/pr50-artifact/confidence.csv "$dest/"
+          cp /tmp/pr50-artifact/ANALYSIS.md "$dest/"
+          cp /tmp/pr50-artifact/decision.json "$dest/"
+          cp /tmp/pr50-artifact/manifest.json "$dest/"
+          cat > "$dest/README.md" <<EOF
+          # PR50 Predictive Economic Residency Evidence
+
+          This directory permanently preserves the first frozen ADES-v2 development + holdout evaluation.
+
+          - Source commit: \`${SOURCE_SHA}\`
+          - GitHub Actions run: \`${SOURCE_RUN}\`
+          - Full artifact: \`${ARTIFACT_NAME}\`
+          - Development matrix: 36 PR49-derived regimes (tuning/regression evidence only)
+          - Fresh holdout: 72 regimes using unseen graph classes, locality families, seeds, and update modes
+
+          The holdout is preserved before any post-result controller tuning. Negative evidence is retained: the frozen ADES-v2 has one statistically material holdout regression under the predeclared >=10% rule.
+
+          Browsable tables are committed directly. \`compact-evidence.tgz\` additionally contains all canonical workload traces and exact oracle bundles used by the development and holdout matrices.
+          EOF
+          tar -C /tmp/pr50-artifact -czf "$dest/compact-evidence.tgz" \
+            measurements.csv summary.csv confidence.csv ANALYSIS.md decision.json manifest.json \
+            development/traces development/oracles holdout/traces holdout/oracles
+          (cd "$dest" && sha256sum README.md ANALYSIS.md decision.json manifest.json measurements.csv summary.csv confidence.csv compact-evidence.tgz > SHA256SUMS)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$dest"
+          git commit -m "evidence: preserve PR50 frozen evaluation [skip ci]"
+          git push
