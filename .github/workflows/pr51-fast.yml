@@ -1,0 +1,106 @@
+name: ADES PR51 fast economic gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - pr51-fast-cold-early-promotion
+  workflow_dispatch:
+    inputs:
+      queries:
+        description: Queries per trace for full PR51 benchmark
+        required: false
+        default: "60"
+      phase:
+        description: regression, holdout2, or both
+        required: false
+        default: "both"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Validate Python
+        run: python3 -m py_compile tools/run_pr51_fast.py
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+      - name: Run PR51 structural smoke
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          python3 tools/run_pr51_fast.py \
+            --repo . --build build --output results/pr51-smoke \
+            --queries 12 --smoke
+          test -s results/pr51-smoke/measurements.csv
+          test -s results/pr51-smoke/summary.csv
+          test -s results/pr51-smoke/confidence.csv
+          test -s results/pr51-smoke/ANALYSIS.md
+          test -s results/pr51-smoke/decision.json
+          test -s results/pr51-smoke/manifest.json
+          test -s results/pr51-smoke/SHA256SUMS
+      - name: Upload smoke evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr51-fast-smoke
+          path: results/pr51-smoke
+          if-no-files-found: error
+          retention-days: 30
+
+  full:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[pr51-full]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Verify committed NY graph
+        run: bash tools/verify_ny_dimacs.sh benchmarks/data
+      - name: Validate Python
+        run: python3 -m py_compile tools/run_pr51_fast.py tools/generate_synthetic_graphs.py
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+      - name: Run PR51 regression and fresh second holdout
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          phase="${{ inputs.phase }}"
+          queries="${{ inputs.queries }}"
+          if [ -z "$phase" ]; then phase=both; fi
+          if [ -z "$queries" ]; then queries=60; fi
+          python3 tools/run_pr51_fast.py \
+            --repo . --build build --output results/pr51-fast \
+            --queries "$queries" --phase "$phase"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('results/pr51-fast')
+          decision = json.loads((p / 'decision.json').read_text())
+          assert 'regression_material_regressions' in decision
+          assert 'holdout2_material_regressions' in decision
+          for name in ('measurements.csv','summary.csv','confidence.csv','ANALYSIS.md','manifest.json','SHA256SUMS'):
+              assert (p / name).is_file() and (p / name).stat().st_size > 0, name
+          PY
+      - name: Upload full PR51 evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr51-fast-economic-full
+          path: results/pr51-fast
+          if-no-files-found: error
+          retention-days: 90
