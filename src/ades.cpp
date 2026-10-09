@@ -2,12 +2,16 @@
 #include "ades/memory_budget.hpp"
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <limits>
 #include <stdexcept>
 #include <vector>
 namespace ades {
 using Clock=std::chrono::steady_clock;
 static std::uint64_t ns_since(Clock::time_point t){return std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now()-t).count();}
+static void ewma(double& current,double sample,double alpha){
+ current=current==0.0?sample:(1.0-alpha)*current+alpha*sample;
+}
 
 Config config_for_scientific_ablation(ScientificAblation profile,Config base){
  base.admission_hysteresis_enabled=false;
@@ -46,6 +50,11 @@ Config config_for_scientific_ablation(ScientificAblation profile,Config base){
    base.admission_hysteresis_enabled=true;
    base.cooldown_enabled=true;
    break;
+  case ScientificAblation::PredictiveEconomic:
+   base.admission_policy=AdmissionPolicy::Economic;
+   base.eviction_policy=EvictionPolicy::Economic;
+   base.maintenance_policy=MaintenancePolicy::LocalRepair;
+   break;
  }
  return base;
 }
@@ -58,6 +67,7 @@ const char* scientific_ablation_name(ScientificAblation profile) noexcept{
   case ScientificAblation::WorkLruRepair:return "WORK-LRU-REPAIR";
   case ScientificAblation::WorkDebtRepair:return "WORK-DEBT-REPAIR";
   case ScientificAblation::FullADES:return "B4";
+  case ScientificAblation::PredictiveEconomic:return "ADES-V2";
  }
  return "UNKNOWN";
 }
@@ -71,6 +81,10 @@ std::uint64_t ADES::nonresident_accounted_bytes_impl()const{
  std::uint64_t bytes=0;
  bytes=accounted_add(bytes,accounted_mul(probation_.size(),ades_probation_entry_accounted_bytes()));
  bytes=accounted_add(bytes,accounted_mul(cooldown_until_.size(),ades_cooldown_entry_accounted_bytes()));
+ if(cfg_.admission_policy==AdmissionPolicy::Economic){
+  bytes=accounted_add(bytes,ades_economic_recent_table_accounted_bytes(kEconomicRecentSlots));
+  bytes=accounted_add(bytes,accounted_mul(economic_sources_.size(),ades_economic_source_accounted_bytes()));
+ }
  return bytes;
 }
 
@@ -80,6 +94,8 @@ std::uint64_t ADES::accounted_algorithm_state_bytes_impl()const{
   (void)source;
   bytes=accounted_add(bytes,ades_resident_entry_accounted_bytes(entry.s));
  }
+ if(cfg_.admission_policy==AdmissionPolicy::Economic)
+  bytes=accounted_add(bytes,accounted_mul(resident_economics_.size(),ades_economic_resident_accounted_bytes()));
  return bytes;
 }
 
@@ -136,6 +152,16 @@ bool ADES::reclaim_nonresident_metadata_for(std::uint64_t required_bytes){
     if(it->second<victim->second||(it->second==victim->second&&it->first<victim->first))victim=it;
    cooldown_until_.erase(victim);stats_.memory_metadata_prunes++;refresh_accounted_memory();continue;
   }
+  if(!economic_sources_.empty()){
+   auto victim=economic_sources_.begin();
+   for(auto it=economic_sources_.begin();it!=economic_sources_.end();++it){
+    const auto& a=it->second;const auto& b=victim->second;
+    if(a.observations<b.observations||
+       (a.observations==b.observations&&a.last_query<b.last_query)||
+       (a.observations==b.observations&&a.last_query==b.last_query&&it->first<victim->first))victim=it;
+   }
+   economic_sources_.erase(victim);stats_.memory_metadata_prunes++;refresh_accounted_memory();continue;
+  }
   return false;
  }
  return true;
@@ -143,7 +169,7 @@ bool ADES::reclaim_nonresident_metadata_for(std::uint64_t required_bytes){
 
 bool ADES::admit(std::uint32_t source,double candidate_score){
  if(residents_.contains(source))return true;
- if(cfg_.admission_policy==AdmissionPolicy::Disabled)return false;
+ if(cfg_.admission_policy==AdmissionPolicy::Disabled||cfg_.admission_policy==AdmissionPolicy::Economic)return false;
  if(cfg_.cooldown_enabled){
   if(auto c=cooldown_until_.find(source);c!=cooldown_until_.end()&&query_clock_<c->second){stats_.cooldown_blocks++;return false;}
  }
@@ -178,7 +204,7 @@ bool ADES::admit(std::uint32_t source,double candidate_score){
  auto needs_eviction=[&]{
   if(simulated_count>=cfg_.resident_cap)return true;
   if(!cfg_.persistent_state_budget_bytes)return false;
-  return candidate_bytes>cfg_.persistent_state_budget_bytes-simulated;
+  return simulated>cfg_.persistent_state_budget_bytes||candidate_bytes>cfg_.persistent_state_budget_bytes-simulated;
  };
  while(needs_eviction()){
   if(next>=candidates.size()){stats_.memory_budget_rejections++;return false;}
@@ -220,6 +246,148 @@ bool ADES::admit(std::uint32_t source,double candidate_score){
  return true;
 }
 
+double ADES::economic_candidate_value(const EconomicSource& source)const{
+ if(source.observations<cfg_.economic_min_observations||source.reuse_gap_ewma<=0.0||source.cold_ns_ewma<=0.0)
+  return -std::numeric_limits<double>::infinity();
+ const double horizon=double(std::max<std::uint64_t>(1,cfg_.economic_horizon_queries));
+ const double gap=std::max(1.0,source.reuse_gap_ewma);
+ const double predicted_reuses=std::clamp(horizon/gap,0.0,horizon);
+ double build=economic_build_ns_ewma_;
+ if(build<=0.0){
+  const double scans=std::max(1.0,source.edge_scans_ewma);
+  const double work_ratio=std::clamp(double(graph_.edge_count())/scans,1.0,64.0);
+  build=source.cold_ns_ewma*work_ratio;
+ }
+ const double update_rate=query_clock_?double(update_clock_)/double(query_clock_):0.0;
+ const double expected_maintenance=horizon*update_rate*economic_maintenance_ns_ewma_;
+ return predicted_reuses*source.cold_ns_ewma-build-expected_maintenance;
+}
+
+double ADES::economic_resident_value(std::uint32_t source,const Entry& entry)const{
+ auto it=resident_economics_.find(source);
+ if(it==resident_economics_.end())return 0.0;
+ const auto& economic=it->second;
+ if(economic.cold_ns_ewma<=0.0)return 0.0;
+ const double horizon=double(std::max<std::uint64_t>(1,cfg_.economic_horizon_queries));
+ const double age=double(std::max<std::uint64_t>(1,query_clock_>=entry.last_query?query_clock_-entry.last_query:1));
+ const double gap=std::max({1.0,economic.reuse_gap_ewma,age});
+ const double predicted_reuses=std::clamp(horizon/gap,0.0,horizon);
+ const double update_rate=query_clock_?double(update_clock_)/double(query_clock_):0.0;
+ const double maintenance=economic.maintenance_ns_ewma>0.0?economic.maintenance_ns_ewma:economic_maintenance_ns_ewma_;
+ return predicted_reuses*economic.cold_ns_ewma-horizon*update_rate*maintenance;
+}
+
+bool ADES::economic_should_promote(std::uint32_t source,double candidate_value)const{
+ if(cfg_.admission_policy!=AdmissionPolicy::Economic||cfg_.resident_cap==0||!(candidate_value>0.0))return false;
+ const auto candidate_bytes=accounted_add(ades_resident_entry_accounted_bytes_for_vertices(graph_.vertex_count()),
+                                          ades_economic_resident_accounted_bytes());
+ if(cfg_.persistent_state_budget_bytes&&candidate_bytes>cfg_.persistent_state_budget_bytes)return false;
+ auto simulated=accounted_algorithm_state_bytes_impl();
+ if(economic_sources_.contains(source))simulated-=ades_economic_source_accounted_bytes();
+ auto simulated_count=residents_.size();
+ struct Victim{std::uint32_t source;double value;std::uint64_t bytes;};
+ std::vector<Victim> candidates;candidates.reserve(residents_.size());
+ for(const auto& [resident,entry]:residents_){
+  auto bytes=ades_resident_entry_accounted_bytes(entry.s);
+  if(resident_economics_.contains(resident))bytes=accounted_add(bytes,ades_economic_resident_accounted_bytes());
+  candidates.push_back({resident,economic_resident_value(resident,entry),bytes});
+ }
+ std::sort(candidates.begin(),candidates.end(),[](const Victim&a,const Victim&b){
+  return a.value<b.value||(a.value==b.value&&a.source<b.source);
+ });
+ std::size_t next=0;
+ auto needs_eviction=[&]{
+  if(simulated_count>=cfg_.resident_cap)return true;
+  if(!cfg_.persistent_state_budget_bytes)return false;
+  return simulated>cfg_.persistent_state_budget_bytes||candidate_bytes>cfg_.persistent_state_budget_bytes-simulated;
+ };
+ while(needs_eviction()){
+  if(next>=candidates.size())return false;
+  const auto& victim=candidates[next++];
+  if(candidate_value<=cfg_.economic_replacement_margin*std::max(0.0,victim.value))return false;
+  simulated-=victim.bytes;--simulated_count;
+ }
+ return true;
+}
+
+bool ADES::admit_economic(std::uint32_t source,SSSPState state,std::uint64_t build_ns,double candidate_value){
+ if(residents_.contains(source))return true;
+ if(!economic_should_promote(source,candidate_value)){stats_.economic_rejections++;return false;}
+ const auto candidate_bytes=accounted_add(ades_resident_entry_accounted_bytes_for_vertices(graph_.vertex_count()),
+                                          ades_economic_resident_accounted_bytes());
+ struct Victim{std::uint32_t source;double value;std::uint64_t bytes;};
+ std::vector<Victim> candidates;candidates.reserve(residents_.size());
+ for(const auto& [resident,entry]:residents_){
+  auto bytes=ades_resident_entry_accounted_bytes(entry.s);
+  if(resident_economics_.contains(resident))bytes=accounted_add(bytes,ades_economic_resident_accounted_bytes());
+  candidates.push_back({resident,economic_resident_value(resident,entry),bytes});
+ }
+ std::sort(candidates.begin(),candidates.end(),[](const Victim&a,const Victim&b){
+  return a.value<b.value||(a.value==b.value&&a.source<b.source);
+ });
+ auto simulated=accounted_algorithm_state_bytes_impl();
+ if(economic_sources_.contains(source))simulated-=ades_economic_source_accounted_bytes();
+ auto simulated_count=residents_.size();
+ std::vector<std::uint32_t> victims;
+ std::size_t next=0;
+ auto needs_eviction=[&]{
+  if(simulated_count>=cfg_.resident_cap)return true;
+  if(!cfg_.persistent_state_budget_bytes)return false;
+  return simulated>cfg_.persistent_state_budget_bytes||candidate_bytes>cfg_.persistent_state_budget_bytes-simulated;
+ };
+ while(needs_eviction()){
+  if(next>=candidates.size())return false;
+  const auto& victim=candidates[next++];
+  simulated-=victim.bytes;--simulated_count;victims.push_back(victim.source);
+ }
+ if(!victims.empty()){
+  auto eviction_start=Clock::now();
+  for(auto victim:victims){
+   if(auto eit=resident_economics_.find(victim);eit!=resident_economics_.end()){
+    auto& slot=economic_recent_[victim%kEconomicRecentSlots];
+    slot.source=victim;slot.last_query=residents_.at(victim).last_query;
+    slot.cold_ns=static_cast<std::uint64_t>(std::max(0.0,eit->second.cold_ns_ewma));
+    slot.edge_scans=0;slot.valid=true;
+    resident_economics_.erase(eit);
+   }
+   residents_.erase(victim);stats_.evictions++;
+  }
+  stats_.timing.eviction_ns+=ns_since(eviction_start);
+ }
+ EconomicSource history;
+ if(auto it=economic_sources_.find(source);it!=economic_sources_.end())history=it->second;
+ economic_sources_.erase(source);
+ Entry entry;entry.s=std::move(state);entry.hits=1;entry.last_query=query_clock_;
+ if(cfg_.maintenance_policy==MaintenancePolicy::LocalRepair)entry.controller.observe_rebuild(build_ns);
+ residents_.emplace(source,std::move(entry));
+ ResidentEconomic economic;
+ economic.observations=std::max<std::uint64_t>(1,history.observations);
+ economic.reuse_gap_ewma=history.reuse_gap_ewma;
+ economic.cold_ns_ewma=history.cold_ns_ewma;
+ resident_economics_[source]=economic;
+ ewma(economic_build_ns_ewma_,double(build_ns),cfg_.economic_ewma_alpha);
+ stats_.rebuilds++;stats_.promotions++;stats_.fused_promotions++;
+ refresh_accounted_memory();
+ return true;
+}
+
+void ADES::economic_record_cold(std::uint32_t source,std::uint64_t cold_ns,std::uint64_t edge_scans){
+ if(cfg_.admission_policy!=AdmissionPolicy::Economic)return;
+ if(auto it=economic_sources_.find(source);it!=economic_sources_.end()){
+  ewma(it->second.cold_ns_ewma,double(cold_ns),cfg_.economic_ewma_alpha);
+  ewma(it->second.edge_scans_ewma,double(edge_scans),cfg_.economic_ewma_alpha);
+ }
+ auto& slot=economic_recent_[source%kEconomicRecentSlots];
+ slot.source=source;slot.last_query=query_clock_;slot.cold_ns=cold_ns;slot.edge_scans=edge_scans;slot.valid=true;
+}
+
+void ADES::economic_record_maintenance(std::uint32_t source,std::uint64_t ns){
+ if(cfg_.admission_policy!=AdmissionPolicy::Economic)return;
+ if(auto it=resident_economics_.find(source);it!=resident_economics_.end())
+  ewma(it->second.maintenance_ns_ewma,double(ns),cfg_.economic_ewma_alpha);
+ ewma(economic_maintenance_ns_ewma_,double(ns),cfg_.economic_ewma_alpha);
+}
+
 Distance ADES::query(std::uint32_t s,std::uint32_t t){
  const auto query_start=Clock::now();
  const auto cold_before=stats_.timing.cold_query_ns;
@@ -238,6 +406,13 @@ Distance ADES::query(std::uint32_t s,std::uint32_t t){
 
  query_clock_++;prune_expired_cooldowns();
  if(auto it=residents_.find(s);it!=residents_.end()){
+  if(cfg_.admission_policy==AdmissionPolicy::Economic){
+   if(auto economic=resident_economics_.find(s);economic!=resident_economics_.end()){
+    const auto gap=query_clock_>=it->second.last_query?query_clock_-it->second.last_query:1;
+    ewma(economic->second.reuse_gap_ewma,double(std::max<std::uint64_t>(1,gap)),cfg_.economic_ewma_alpha);
+    economic->second.observations++;
+   }
+  }
   stats_.resident_queries++;it->second.hits++;it->second.last_query=query_clock_;
   const auto answer=it->second.s.dist.at(t);
   const auto total=ns_since(query_start);
@@ -247,6 +422,48 @@ Distance ADES::query(std::uint32_t s,std::uint32_t t){
  }
 
  stats_.cold_queries++;
+ if(cfg_.admission_policy==AdmissionPolicy::Economic){
+  auto history=economic_sources_.find(s);
+  if(history!=economic_sources_.end()){
+   const auto gap=query_clock_>=history->second.last_query?query_clock_-history->second.last_query:1;
+   ewma(history->second.reuse_gap_ewma,double(std::max<std::uint64_t>(1,gap)),cfg_.economic_ewma_alpha);
+   history->second.last_query=query_clock_;history->second.observations++;
+  }else{
+   const auto& slot=economic_recent_[s%kEconomicRecentSlots];
+   if(slot.valid&&slot.source==s&&slot.last_query<query_clock_){
+    if(can_fit_accounted_bytes(ades_economic_source_accounted_bytes())||
+       reclaim_nonresident_metadata_for(ades_economic_source_accounted_bytes())){
+     EconomicSource created;
+     created.observations=2;created.last_query=query_clock_;
+     created.reuse_gap_ewma=double(query_clock_-slot.last_query);
+     created.cold_ns_ewma=double(slot.cold_ns);created.edge_scans_ewma=double(slot.edge_scans);
+     history=economic_sources_.emplace(s,created).first;refresh_accounted_memory();
+    }else stats_.memory_budget_rejections++;
+   }
+  }
+  if(history!=economic_sources_.end()&&history->second.observations>=cfg_.economic_min_observations){
+   stats_.economic_candidates++;
+   const auto candidate_value=economic_candidate_value(history->second);
+   if(economic_should_promote(s,candidate_value)){
+    auto promotion_start=Clock::now();
+    auto state=dijkstra(graph_,s);
+    const auto build_ns=ns_since(promotion_start);
+    stats_.timing.promotion_ns+=build_ns;
+    const auto answer=state.dist.at(t);
+    if(admit_economic(s,std::move(state),build_ns,candidate_value))return finish_cold(answer);
+    return finish_cold(answer);
+   }
+   stats_.economic_rejections++;
+  }
+  auto cold_start=Clock::now();
+  auto cold=bidirectional_dijkstra_profiled(graph_,s,t);
+  const auto cold_ns=ns_since(cold_start);
+  stats_.timing.cold_query_ns+=cold_ns;
+  economic_record_cold(s,cold_ns,cold.edge_scans);
+  refresh_accounted_memory();
+  return finish_cold(cold.distance);
+ }
+
  auto cold_start=Clock::now();
  auto cold=bidirectional_dijkstra_profiled(graph_,s,t);
  stats_.timing.cold_query_ns+=ns_since(cold_start);
@@ -293,13 +510,15 @@ void ADES::update(std::uint32_t id,Weight nw){
 
  auto old=graph_.edge(id);
  if(old.weight==nw){finish_update();return;}
- auto graph_start=Clock::now();graph_.update_weight(id,nw);stats_.timing.graph_update_ns+=ns_since(graph_start);
+ auto graph_start=Clock::now();graph_.update_weight(id,nw);stats_.timing.graph_update_ns+=ns_since(graph_start);update_clock_++;
  for(auto&kv:residents_){
+  const auto resident_update_start=Clock::now();
   auto&entry=kv.second;
   if(cfg_.eviction_policy==EvictionPolicy::DebtAware)entry.update_debt++;
   auto&st=entry.s;
   if(cfg_.maintenance_policy==MaintenancePolicy::FullRebuild){
    auto rebuild_start=Clock::now();st=dijkstra(graph_,st.source);stats_.timing.rebuild_ns+=ns_since(rebuild_start);stats_.rebuilds++;
+   economic_record_maintenance(kv.first,ns_since(resident_update_start));
    continue;
   }
 
@@ -318,14 +537,16 @@ void ADES::update(std::uint32_t id,Weight nw){
    if(r==RepairResult::Repaired){
     stats_.increase_repairs++;
     controller_start=Clock::now();entry.controller.observe_repair(repair_ns,work);stats_.timing.controller_ns+=ns_since(controller_start);
+    economic_record_maintenance(kv.first,ns_since(resident_update_start));
     continue;
    }
   }
-  if(r==RepairResult::Filtered){stats_.filtered_updates++;continue;}
-  if(r==RepairResult::Repaired){stats_.decrease_repairs++;continue;}
+  if(r==RepairResult::Filtered){stats_.filtered_updates++;economic_record_maintenance(kv.first,ns_since(resident_update_start));continue;}
+  if(r==RepairResult::Repaired){stats_.decrease_repairs++;economic_record_maintenance(kv.first,ns_since(resident_update_start));continue;}
   stats_.repair_aborts++;
   auto rebuild_start=Clock::now();st=dijkstra(graph_,st.source);const auto rebuild_ns=ns_since(rebuild_start);stats_.timing.rebuild_ns+=rebuild_ns;
   auto controller_start=Clock::now();entry.controller.observe_rebuild(rebuild_ns);stats_.timing.controller_ns+=ns_since(controller_start);stats_.rebuilds++;
+  economic_record_maintenance(kv.first,ns_since(resident_update_start));
  }
  refresh_accounted_memory();
  finish_update();
