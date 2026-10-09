@@ -1,0 +1,35 @@
+name: ADES PR53 probation portfolio development
+
+on:
+  push:
+    branches:
+      - pr53-hazard-aware-hybrid
+    paths:
+      - 'include/ades/portfolio_ades.hpp'
+      - 'src/portfolio_ades.cpp'
+      - 'include/ades/progressive_frontier.hpp'
+      - 'src/progressive_frontier.cpp'
+      - 'benchmarks/pr53_portfolio_profile.cpp'
+      - 'tools/run_pr53_portfolio_dev.py'
+      - 'CMakeLists.txt'
+      - '.github/workflows/pr53-portfolio-development.yml'
+
+jobs:
+  development:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2 --target ades_workload_v2 ades_pr53_profile ades_pr53_portfolio_profile ades_hazard_tests ades_progressive_frontier_tests
+          ./build/ades_progressive_frontier_tests
+          ./build/ades_hazard_tests
+      - name: Run consumed portfolio matrix
+        run: python3 tools/run_pr53_portfolio_dev.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr53-portfolio-development-${{ github.sha }}
+          path: results/pr53-portfolio-dev/
+          retention-days: 90
