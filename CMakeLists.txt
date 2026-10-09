@@ -62,3 +62,6 @@ target_link_libraries(ades_workload_v2 PRIVATE ades)
 
 add_executable(ades_pilot_profile benchmarks/pilot_profile.cpp)
 target_link_libraries(ades_pilot_profile PRIVATE ades)
+
+add_executable(ades_pr52_profile benchmarks/pr52_profile.cpp)
+target_link_libraries(ades_pr52_profile PRIVATE ades)
