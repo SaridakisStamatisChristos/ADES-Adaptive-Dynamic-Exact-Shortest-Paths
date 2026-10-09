@@ -113,7 +113,17 @@ Update intervals:
 - 1/10
 - 1/100
 
+Full-evaluation trace length:
+
+- 120 queries per trace
+
 These combinations, seeds, byte budgets, and update-direction/magnitude settings were not the PR50 holdout matrix.
+
+### Pre-evidence protocol correction
+
+The first full-run attempt used the harness default of 60 queries. The harness correctly rejected the matrix before producing a performance result because `1/100` yields zero updates in a 60-query trace, causing the two nominal update scenarios to collapse to identical trace SHA-256 values.
+
+No PR51 performance summary or holdout decision was produced by that failed attempt. The controller remained frozen and unchanged. The protocol was corrected by setting the full evaluation to 120 queries per trace, which preserves the predeclared `1/100` rate while guaranteeing one update. The duplicate-trace guard remains enabled.
 
 ## Predeclared interpretation
 
