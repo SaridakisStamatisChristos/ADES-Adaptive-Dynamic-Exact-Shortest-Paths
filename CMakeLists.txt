@@ -4,7 +4,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(ZLIB REQUIRED)
-add_library(ades src/graph.cpp src/coordinates.cpp src/shortest_paths.cpp src/dynamic_repair.cpp src/ades.cpp src/progressive_frontier.cpp src/progressive_ades.cpp src/hazard_ades.cpp src/trace.cpp src/workload.cpp)
+add_library(ades src/graph.cpp src/coordinates.cpp src/shortest_paths.cpp src/dynamic_repair.cpp src/ades.cpp src/progressive_frontier.cpp src/progressive_ades.cpp src/hazard_ades.cpp src/portfolio_ades.cpp src/trace.cpp src/workload.cpp)
 target_include_directories(ades PUBLIC include)
 target_link_libraries(ades PUBLIC ZLIB::ZLIB)
 target_compile_options(ades PRIVATE -Wall -Wextra -Wpedantic)
@@ -14,61 +14,46 @@ enable_testing()
 add_executable(ades_tests tests/test_main.cpp)
 target_link_libraries(ades_tests PRIVATE ades)
 add_test(NAME ades_tests COMMAND ades_tests)
-
 add_executable(ades_trace_identity_tests tests/trace_identity.cpp)
 target_link_libraries(ades_trace_identity_tests PRIVATE ades)
 add_test(NAME ades_trace_identity_tests COMMAND ades_trace_identity_tests)
-
 add_executable(ades_memory_budget_tests tests/memory_budget.cpp)
 target_link_libraries(ades_memory_budget_tests PRIVATE ades)
 add_test(NAME ades_memory_budget_tests COMMAND ades_memory_budget_tests)
-
 add_executable(ades_telemetry_tests tests/telemetry.cpp)
 target_link_libraries(ades_telemetry_tests PRIVATE ades)
 add_test(NAME ades_telemetry_tests COMMAND ades_telemetry_tests)
-
 add_executable(ades_ablation_tests tests/ablations.cpp)
 target_link_libraries(ades_ablation_tests PRIVATE ades)
 add_test(NAME ades_ablation_tests COMMAND ades_ablation_tests)
-
 add_executable(ades_workload_v2_tests tests/workload_v2.cpp)
 target_link_libraries(ades_workload_v2_tests PRIVATE ades)
 add_test(NAME ades_workload_v2_tests COMMAND ades_workload_v2_tests)
-
 add_executable(ades_progressive_frontier_tests tests/progressive_frontier.cpp)
 target_link_libraries(ades_progressive_frontier_tests PRIVATE ades)
 add_test(NAME ades_progressive_frontier_tests COMMAND ades_progressive_frontier_tests)
-
 add_executable(ades_hazard_tests tests/hazard_ades.cpp)
 target_link_libraries(ades_hazard_tests PRIVATE ades)
 add_test(NAME ades_hazard_tests COMMAND ades_hazard_tests)
-
 add_executable(ades_bench benchmarks/runner.cpp)
 target_link_libraries(ades_bench PRIVATE ades)
-
 add_executable(ades_catastrophic_cut benchmarks/catastrophic_cut.cpp)
 target_link_libraries(ades_catastrophic_cut PRIVATE ades)
-
 add_executable(ades_trace_replay tests/trace_replay.cpp)
 target_link_libraries(ades_trace_replay PRIVATE ades)
-
 add_executable(ades_controller_workload benchmarks/controller_workload.cpp)
 target_link_libraries(ades_controller_workload PRIVATE ades)
-
 add_executable(ades_phase benchmarks/phase_diagram.cpp)
 target_link_libraries(ades_phase PRIVATE ades)
-
 add_executable(ades_scientific_ablations benchmarks/scientific_ablations.cpp)
 target_link_libraries(ades_scientific_ablations PRIVATE ades)
-
 add_executable(ades_workload_v2 tools/workload_v2.cpp)
 target_link_libraries(ades_workload_v2 PRIVATE ades)
-
 add_executable(ades_pilot_profile benchmarks/pilot_profile.cpp)
 target_link_libraries(ades_pilot_profile PRIVATE ades)
-
 add_executable(ades_pr52_profile benchmarks/pr52_profile.cpp)
 target_link_libraries(ades_pr52_profile PRIVATE ades)
-
 add_executable(ades_pr53_profile benchmarks/pr53_profile.cpp)
 target_link_libraries(ades_pr53_profile PRIVATE ades)
+add_executable(ades_pr53_portfolio_profile benchmarks/pr53_portfolio_profile.cpp)
+target_link_libraries(ades_pr53_portfolio_profile PRIVATE ades)
