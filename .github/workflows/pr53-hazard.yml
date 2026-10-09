@@ -1,0 +1,36 @@
+name: ADES PR53 hazard-aware hybrid gate
+
+on:
+  pull_request:
+    paths:
+      - 'include/ades/hazard_ades.hpp'
+      - 'src/hazard_ades.cpp'
+      - 'tests/hazard_ades.cpp'
+      - 'benchmarks/pr53_profile.cpp'
+      - 'CMakeLists.txt'
+      - '.github/workflows/pr53-hazard.yml'
+  push:
+    branches:
+      - pr53-hazard-aware-hybrid
+
+jobs:
+  structural:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Build V5
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2 --target ades_hazard_tests ades_workload_v2 ades_pr53_profile
+      - name: Hazard-aware differential tests
+        run: ./build/ades_hazard_tests
+      - name: Isolated V5 smoke
+        run: |
+          mkdir -p build/pr53-smoke
+          python3 tools/generate_synthetic_graphs.py build/pr53-smoke --only syn-grid-224x224-v1
+          ./build/ades_workload_v2 build/pr53-smoke/syn-grid-224x224-v1.gr build/pr53-smoke/smoke.trace build/pr53-smoke/smoke.json 1337 40 churn 5 strict-alternating medium 4 15 90 4
+          ./build/ades_pr53_profile oracle build/pr53-smoke/syn-grid-224x224-v1.gr build/pr53-smoke/smoke.trace build/pr53-smoke/smoke.oracle
+          ./build/ades_pr53_profile run build/pr53-smoke/syn-grid-224x224-v1.gr build/pr53-smoke/smoke.trace build/pr53-smoke/smoke.oracle 16777216 ADES-V3
+          ./build/ades_pr53_profile run build/pr53-smoke/syn-grid-224x224-v1.gr build/pr53-smoke/smoke.trace build/pr53-smoke/smoke.oracle 16777216 ADES-V4
+          ./build/ades_pr53_profile run build/pr53-smoke/syn-grid-224x224-v1.gr build/pr53-smoke/smoke.trace build/pr53-smoke/smoke.oracle 16777216 ADES-V5
