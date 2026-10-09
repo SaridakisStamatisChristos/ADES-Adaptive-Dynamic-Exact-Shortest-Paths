@@ -10,7 +10,7 @@ on:
       queries:
         description: Queries per trace for full PR51 benchmark
         required: false
-        default: "60"
+        default: "120"
       phase:
         description: regression, holdout2, or both
         required: false
@@ -83,7 +83,7 @@ jobs:
           phase="${{ inputs.phase }}"
           queries="${{ inputs.queries }}"
           if [ -z "$phase" ]; then phase=both; fi
-          if [ -z "$queries" ]; then queries=60; fi
+          if [ -z "$queries" ]; then queries=120; fi
           python3 tools/run_pr51_fast.py \
             --repo . --build build --output results/pr51-fast \
             --queries "$queries" --phase "$phase"
