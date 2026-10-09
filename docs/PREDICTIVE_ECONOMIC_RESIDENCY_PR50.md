@@ -181,3 +181,7 @@ Holdout target:
 > zero statistically material regressions of at least 10% against COLD, B3L, FREQ-LRU-REPAIR, or ADES-v1 under the predeclared paired confidence calculation.
 
 The holdout target is evidence-calibrated; it is not a universal online-optimality theorem.
+
+## Frozen evaluation point
+
+The ADES-v2 controller was frozen before the first full development+holdout execution. The commit carrying this section triggers that execution; holdout outcomes will be treated as evaluation evidence rather than tuning input for this controller version.
