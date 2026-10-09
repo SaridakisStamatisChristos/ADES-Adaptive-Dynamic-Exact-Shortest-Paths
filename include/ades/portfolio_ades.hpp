@@ -66,7 +66,7 @@ class PortfolioADES {
   void update(std::uint32_t edge_id, Weight new_weight);
 
   bool eager_mode() const noexcept { return eager_mode_; }
-  const PortfolioStats& stats() const noexcept { return stats_; }
+  PortfolioStats stats() const noexcept;
   std::uint64_t accounted_algorithm_state_bytes() const;
   std::uint64_t peak_accounted_algorithm_state_bytes() const;
 };
