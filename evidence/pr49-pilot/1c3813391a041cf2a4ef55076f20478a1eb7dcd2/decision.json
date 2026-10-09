@@ -1,0 +1,20 @@
+{
+  "decision": "REFRAME",
+  "reason": "The pilot shows a nontrivial operating-region/crossover signal, but the scoped SOTA headline remains blocked until a DIRECT external comparator is qualified.",
+  "headline_sota_ready": false,
+  "direct_external_comparators": [],
+  "regime_count": 36,
+  "unique_fastest_profiles": [
+    "ADES",
+    "B3L",
+    "COLD",
+    "FREQ-LRU-REBUILD",
+    "FREQ-LRU-REPAIR",
+    "WORK-DEBT-REPAIR",
+    "WORK-LRU-REPAIR"
+  ],
+  "crossover_observed": true,
+  "ades_fastest_regimes": 3,
+  "material_ades_wins_vs_freq_lru_repair": 2,
+  "material_ades_losses_vs_freq_lru_repair": 0
+}
