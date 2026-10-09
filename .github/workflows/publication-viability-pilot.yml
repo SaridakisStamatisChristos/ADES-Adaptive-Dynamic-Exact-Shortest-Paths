@@ -1,0 +1,111 @@
+name: ADES publication viability pilot
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      queries:
+        description: Queries per trace for full pilot
+        required: false
+        default: "60"
+      persist:
+        description: Persist compact evidence package to the selected branch
+        required: false
+        default: "false"
+
+permissions:
+  contents: write
+
+jobs:
+  pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Verify committed NY graph
+        run: bash tools/verify_ny_dimacs.sh benchmarks/data
+      - name: Validate pilot Python
+        run: python3 -m py_compile tools/run_publication_pilot.py tools/generate_synthetic_graphs.py
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+      - name: Run PR structural smoke
+        if: github.event_name == 'pull_request'
+        run: |
+          python3 tools/run_publication_pilot.py \
+            --repo . --build build --output results/pr49-pilot-smoke \
+            --queries 12 --smoke
+          test -s results/pr49-pilot-smoke/measurements.csv
+          test -s results/pr49-pilot-smoke/summary.csv
+          test -s results/pr49-pilot-smoke/confidence.csv
+          test -s results/pr49-pilot-smoke/ANALYSIS.md
+          test -s results/pr49-pilot-smoke/manifest.json
+          test -s results/pr49-pilot-smoke/SHA256SUMS
+      - name: Run full frozen pilot
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          python3 tools/run_publication_pilot.py \
+            --repo . --build build --output results/pr49-pilot \
+            --queries '${{ inputs.queries }}'
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          decision = json.loads(Path('results/pr49-pilot/decision.json').read_text())
+          assert decision['decision'] in {'GO', 'REFRAME', 'NO-GO'}
+          assert decision['regime_count'] == 36
+          PY
+      - name: Upload smoke evidence
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr49-pilot-smoke
+          path: results/pr49-pilot-smoke
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload full pilot evidence
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr49-publication-viability-pilot
+          path: results/pr49-pilot
+          if-no-files-found: error
+          retention-days: 90
+      - name: Persist compact pilot evidence
+        if: github.event_name == 'workflow_dispatch' && inputs.persist == 'true'
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          dest="evidence/pr49-pilot/${SOURCE_SHA}"
+          mkdir -p "$dest"
+          cp results/pr49-pilot/measurements.csv "$dest/"
+          cp results/pr49-pilot/summary.csv "$dest/"
+          cp results/pr49-pilot/confidence.csv "$dest/"
+          cp results/pr49-pilot/ANALYSIS.md "$dest/"
+          cp results/pr49-pilot/decision.json "$dest/"
+          cp results/pr49-pilot/manifest.json "$dest/"
+          cp -R results/pr49-pilot/traces "$dest/"
+          cp -R results/pr49-pilot/oracles "$dest/"
+          python3 - "$dest" <<'PY'
+          import hashlib
+          from pathlib import Path
+          import sys
+          root = Path(sys.argv[1])
+          files = sorted(p for p in root.rglob('*') if p.is_file() and p.name != 'SHA256SUMS')
+          with (root / 'SHA256SUMS').open('w') as out:
+              for p in files:
+                  out.write(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.relative_to(root).as_posix()}\n")
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$dest"
+          git commit -m "evidence: preserve PR49 viability pilot [skip ci]"
+          git push
