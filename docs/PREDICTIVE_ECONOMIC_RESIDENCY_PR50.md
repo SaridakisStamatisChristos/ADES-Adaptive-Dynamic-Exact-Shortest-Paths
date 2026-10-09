@@ -184,4 +184,126 @@ The holdout target is evidence-calibrated; it is not a universal online-optimali
 
 ## Frozen evaluation point
 
-The ADES-v2 controller was frozen before the first full development+holdout execution. The commit carrying this section triggers that execution; holdout outcomes will be treated as evaluation evidence rather than tuning input for this controller version.
+The ADES-v2 controller was frozen before the first full development+holdout execution at source commit:
+
+```text
+3fb5f57a19c477742c0a87bac6f901f53b37d732
+```
+
+The complete evaluation executed in GitHub Actions run:
+
+```text
+37892264840
+```
+
+No controller changes were made between freezing the source and observing the development or holdout result.
+
+## Frozen evaluation result
+
+The full run completed successfully with no shortest-path exactness failure, trace/oracle identity failure, or persistent-state budget violation.
+
+Machine summary:
+
+```text
+development regimes                         36
+holdout regimes                             72
+development V2 fastest or within 1%         22 / 36
+holdout V2 fastest or within 1%             34 / 72
+development material regressions             6
+holdout material regressions                 1
+development material comparator wins        33
+holdout material comparator wins           145
+```
+
+`material comparator wins` counts statistically material ADES-v2 wins across comparator/regime comparison rows, not unique regimes.
+
+### Fastest-profile counts
+
+Development, 36 regimes:
+
+```text
+ADES-V2              19
+B3L                    6
+ADES-v1                4
+COLD                   4
+FREQ-LRU-REPAIR        3
+```
+
+Fresh holdout, 72 regimes:
+
+```text
+ADES-V2              28
+COLD                  27
+ADES-v1               17
+```
+
+The result therefore materially improves the PR49 phase behavior: ADES-v2 is the most frequent winner in both the development and fresh holdout matrices. It does **not** establish universal dominance.
+
+## Remaining development failure mode: delayed churn promotion
+
+All six statistically material development regressions are against B3L on `churn` workloads. They occur on NY and grid regimes where resident state is eventually profitable.
+
+The ADES-v2 rows still spend substantial early work cold before stabilizing. Across those failing cells the frozen run records examples such as:
+
+```text
+NY churn:        8–20 cold queries before four residents stabilize
+Grid churn:     11–32 cold queries before three/four residents stabilize
+```
+
+There are no corresponding eviction storms in these cells. The remaining deficit is primarily **late materialization**, not capacity thrashing.
+
+This is consistent with the finite economic horizon and the requirement for observed reuse before promotion: B3L pays the resident construction immediately, while ADES-v2 waits for evidence that the build will amortize.
+
+This is a valid remaining research/engineering target; it must not be repaired by relabeling the already-observed development cells as fresh evidence.
+
+## Fresh holdout contradiction: cold-path predictor overhead
+
+The single statistically material holdout regression is:
+
+```text
+graph:           syn-clustered-50000-c100-d6-v1
+family:          hot-pool
+update interval: 1/2
+update mode:     repeated-edge
+budget:          16 MiB
+comparator:      ADES-v1
+comparator/V2:   0.808387911
+95% CI:          0.707710862–0.923387008
+```
+
+A ratio below 1 means ADES-v1 is faster. In this cell ADES-v2 executes all 60 queries cold for every seed and performs zero promotions, zero evictions, and zero resident rebuilds. The regression is therefore not caused by a bad resident-state choice. It is **controller/predictor overhead on a workload that remains entirely cold**.
+
+This contradiction is preserved rather than tuned away.
+
+## Permanent evidence
+
+The first frozen development + holdout result is permanently committed under:
+
+```text
+evidence/pr50-economic/3fb5f57a19c477742c0a87bac6f901f53b37d732/
+```
+
+Browsable files include:
+
+- `measurements.csv`
+- `summary.csv`
+- `confidence.csv`
+- `ANALYSIS.md`
+- `decision.json`
+- `manifest.json`
+- `README.md`
+- `SHA256SUMS`
+
+`compact-evidence.tgz` additionally preserves every canonical trace and exact oracle bundle used by both matrices.
+
+## PR50 conclusion
+
+**PR50 is a successful algorithmic improvement, but the strongest target is only partially achieved.**
+
+ADES-v2 substantially changes the phase diagram in the intended direction and is the most frequent fastest profile in the fresh holdout. Exactness and equal-byte enforcement remain intact. However:
+
+- the 36-regime development matrix still contains six material B3L/churn losses caused primarily by delayed promotion;
+- the 72-regime fresh holdout contains one material ADES-v1 loss caused by predictor overhead on a fully cold workload;
+- therefore the claim "ADES-v2 wins everywhere" is contradicted by the frozen evidence.
+
+Any next controller iteration must treat this first holdout as consumed evidence. New tuning should use these failures as hypotheses, then be evaluated on a **new holdout** with new graph/workload/seed combinations.
