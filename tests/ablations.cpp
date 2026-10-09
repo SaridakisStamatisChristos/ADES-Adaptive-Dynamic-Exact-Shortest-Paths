@@ -58,6 +58,13 @@ int main(){
  require(full.admission_hysteresis_enabled&&full.cooldown_enabled,"full stabilizers missing");
  require(std::string_view(scientific_ablation_name(ScientificAblation::FreqLruRepair))=="FREQ-LRU-REPAIR","profile name mismatch");
 
+ const auto economic=config_for_scientific_ablation(ScientificAblation::PredictiveEconomic,base);
+ require(economic.admission_policy==AdmissionPolicy::Economic,"economic admission mismatch");
+ require(economic.eviction_policy==EvictionPolicy::Economic,"economic eviction mismatch");
+ require(economic.maintenance_policy==MaintenancePolicy::LocalRepair,"economic maintenance mismatch");
+ require(!economic.admission_hysteresis_enabled&&!economic.cooldown_enabled,"economic policy must use its own switching margin");
+ require(std::string_view(scientific_ablation_name(ScientificAblation::PredictiveEconomic))=="ADES-V2","economic profile name mismatch");
+
  ADES cold_engine(graph(),cold);
  require(cold_engine.query(0,4)==5,"cold exactness failure");
  require(cold_engine.query(0,4)==5,"cold repeat exactness failure");
@@ -82,6 +89,33 @@ int main(){
  require(repair_engine.stats().rebuilds==repair_rebuilds,"repair profile rebuilt instead of repairing decrease");
  require(repair_engine.query(0,4)==4,"repair profile update exactness failure");
  require(repair_engine.stats().timing.reconciles(),"repair profile telemetry failed reconciliation");
+
+ Config economic_fast=economic;
+ economic_fast.economic_horizon_queries=1024; // force a clearly profitable repeated source in this tiny fixture.
+ economic_fast.economic_replacement_margin=1.0;
+ ADES economic_engine(graph(),economic_fast);
+ const auto fixed_predictor_bytes=economic_engine.accounted_algorithm_state_bytes();
+ require(fixed_predictor_bytes>0,"economic predictor must be charged to persistent-state accounting");
+ require(economic_engine.query(0,4)==5,"economic first-query exactness failure");
+ require(!economic_engine.resident(0),"economic policy promoted on first sight without reuse evidence");
+ require(economic_engine.query(0,4)==5,"economic fused-promotion exactness failure");
+ require(economic_engine.resident(0),"economic policy failed to promote repeated profitable source");
+ require(economic_engine.stats().fused_promotions==1,"economic promotion was not recorded as fused");
+ require(economic_engine.stats().promotions==1&&economic_engine.stats().rebuilds==1,"economic promotion build counters mismatch");
+ require(economic_engine.stats().timing.reconciles(),"economic telemetry failed reconciliation");
+ economic_engine.update(0,1);
+ require(economic_engine.query(0,4)==4,"economic update exactness failure");
+ require(economic_engine.stats().timing.reconciles(),"economic post-update telemetry failed reconciliation");
+
+ ADES unique_engine(graph(),economic);
+ const auto unique_before=unique_engine.accounted_algorithm_state_bytes();
+ require(unique_engine.query(0,4)==5,"unique source 0 exactness failure");
+ require(unique_engine.query(1,4)==3,"unique source 1 exactness failure");
+ require(unique_engine.query(2,4)==4,"unique source 2 exactness failure");
+ require(unique_engine.query(3,4)==2,"unique source 3 exactness failure");
+ require(unique_engine.accounted_algorithm_state_bytes()==unique_before,
+         "first-sight sources unexpectedly created unbounded economic metadata");
+ require(unique_engine.resident_count()==0,"unique-source stream unexpectedly created residents");
 
  return 0;
 }
