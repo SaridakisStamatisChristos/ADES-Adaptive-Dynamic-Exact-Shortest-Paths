@@ -1,0 +1,453 @@
+{
+  "schema": "ades-pr51-fast-economic-v1",
+  "commit": "8363cd090686c00eb7ffad137f2579c3e44961fe",
+  "profiles": [
+    "COLD",
+    "B3L",
+    "FREQ-LRU-REPAIR",
+    "ADES",
+    "ADES-V2",
+    "ADES-V3"
+  ],
+  "regression_is_tuning_evidence": true,
+  "holdout2_is_fresh_evidence": true,
+  "queries_per_trace": 120,
+  "matrices": {
+    "regression": {
+      "cases": [
+        {
+          "graph_id": "ny-road-distance",
+          "graph_file": "benchmarks/data/USA-road-d.NY.gr.gz",
+          "family": "churn",
+          "locality": 100,
+          "interval": 5,
+          "mode": "strict-alternating",
+          "magnitude": "medium",
+          "budgets": [
+            16777216,
+            67108864
+          ]
+        },
+        {
+          "graph_id": "ny-road-distance",
+          "graph_file": "benchmarks/data/USA-road-d.NY.gr.gz",
+          "family": "churn",
+          "locality": 100,
+          "interval": 50,
+          "mode": "strict-alternating",
+          "magnitude": "medium",
+          "budgets": [
+            16777216,
+            67108864
+          ]
+        },
+        {
+          "graph_id": "syn-grid-224x224-v1",
+          "graph_file": "syn-grid-224x224-v1.gr",
+          "family": "churn",
+          "locality": 100,
+          "interval": 5,
+          "mode": "strict-alternating",
+          "magnitude": "medium",
+          "budgets": [
+            16777216,
+            67108864
+          ]
+        },
+        {
+          "graph_id": "syn-grid-224x224-v1",
+          "graph_file": "syn-grid-224x224-v1.gr",
+          "family": "churn",
+          "locality": 100,
+          "interval": 50,
+          "mode": "strict-alternating",
+          "magnitude": "medium",
+          "budgets": [
+            16777216,
+            67108864
+          ]
+        },
+        {
+          "graph_id": "syn-clustered-50000-c100-d6-v1",
+          "graph_file": "syn-clustered-50000-c100-d6-v1.gr",
+          "family": "hot-pool",
+          "locality": 85,
+          "interval": 2,
+          "mode": "repeated-edge",
+          "magnitude": "medium",
+          "budgets": [
+            16777216
+          ]
+        }
+      ],
+      "seeds": [
+        7,
+        17,
+        29
+      ],
+      "repeats": [
+        0
+      ]
+    },
+    "holdout2": {
+      "cases": [
+        {
+          "graph_id": "ny-road-distance",
+          "graph_file": "benchmarks/data/USA-road-d.NY.gr.gz",
+          "family": "hot-pool",
+          "locality": 70,
+          "interval": 10,
+          "mode": "balanced-random",
+          "magnitude": "small",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        },
+        {
+          "graph_id": "ny-road-distance",
+          "graph_file": "benchmarks/data/USA-road-d.NY.gr.gz",
+          "family": "hot-pool",
+          "locality": 70,
+          "interval": 100,
+          "mode": "balanced-random",
+          "magnitude": "small",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        },
+        {
+          "graph_id": "ny-road-distance",
+          "graph_file": "benchmarks/data/USA-road-d.NY.gr.gz",
+          "family": "hot-pool",
+          "locality": 70,
+          "interval": 10,
+          "mode": "increase-only",
+          "magnitude": "large",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        },
+        {
+          "graph_id": "ny-road-distance",
+          "graph_file": "benchmarks/data/USA-road-d.NY.gr.gz",
+          "family": "hot-pool",
+          "locality": 70,
+          "interval": 100,
+          "mode": "increase-only",
+          "magnitude": "large",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        },
+        {
+          "graph_id": "ny-road-distance",
+          "graph_file": "benchmarks/data/USA-road-d.NY.gr.gz",
+          "family": "rotating-hot",
+          "locality": 80,
+          "interval": 10,
+          "mode": "balanced-random",
+          "magnitude": "small",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        },
+        {
+          "graph_id": "ny-road-distance",
+          "graph_file": "benchmarks/data/USA-road-d.NY.gr.gz",
+          "family": "rotating-hot",
+          "locality": 80,
+          "interval": 100,
+          "mode": "balanced-random",
+          "magnitude": "small",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        },
+        {
+          "graph_id": "ny-road-distance",
+          "graph_file": "benchmarks/data/USA-road-d.NY.gr.gz",
+          "family": "rotating-hot",
+          "locality": 80,
+          "interval": 10,
+          "mode": "increase-only",
+          "magnitude": "large",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        },
+        {
+          "graph_id": "ny-road-distance",
+          "graph_file": "benchmarks/data/USA-road-d.NY.gr.gz",
+          "family": "rotating-hot",
+          "locality": 80,
+          "interval": 100,
+          "mode": "increase-only",
+          "magnitude": "large",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        },
+        {
+          "graph_id": "syn-scale-free-50000-m4-v1",
+          "graph_file": "syn-scale-free-50000-m4-v1.gr",
+          "family": "hot-pool",
+          "locality": 70,
+          "interval": 10,
+          "mode": "balanced-random",
+          "magnitude": "small",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        },
+        {
+          "graph_id": "syn-scale-free-50000-m4-v1",
+          "graph_file": "syn-scale-free-50000-m4-v1.gr",
+          "family": "hot-pool",
+          "locality": 70,
+          "interval": 100,
+          "mode": "balanced-random",
+          "magnitude": "small",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        },
+        {
+          "graph_id": "syn-scale-free-50000-m4-v1",
+          "graph_file": "syn-scale-free-50000-m4-v1.gr",
+          "family": "hot-pool",
+          "locality": 70,
+          "interval": 10,
+          "mode": "increase-only",
+          "magnitude": "large",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        },
+        {
+          "graph_id": "syn-scale-free-50000-m4-v1",
+          "graph_file": "syn-scale-free-50000-m4-v1.gr",
+          "family": "hot-pool",
+          "locality": 70,
+          "interval": 100,
+          "mode": "increase-only",
+          "magnitude": "large",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        },
+        {
+          "graph_id": "syn-scale-free-50000-m4-v1",
+          "graph_file": "syn-scale-free-50000-m4-v1.gr",
+          "family": "rotating-hot",
+          "locality": 80,
+          "interval": 10,
+          "mode": "balanced-random",
+          "magnitude": "small",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        },
+        {
+          "graph_id": "syn-scale-free-50000-m4-v1",
+          "graph_file": "syn-scale-free-50000-m4-v1.gr",
+          "family": "rotating-hot",
+          "locality": 80,
+          "interval": 100,
+          "mode": "balanced-random",
+          "magnitude": "small",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        },
+        {
+          "graph_id": "syn-scale-free-50000-m4-v1",
+          "graph_file": "syn-scale-free-50000-m4-v1.gr",
+          "family": "rotating-hot",
+          "locality": 80,
+          "interval": 10,
+          "mode": "increase-only",
+          "magnitude": "large",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        },
+        {
+          "graph_id": "syn-scale-free-50000-m4-v1",
+          "graph_file": "syn-scale-free-50000-m4-v1.gr",
+          "family": "rotating-hot",
+          "locality": 80,
+          "interval": 100,
+          "mode": "increase-only",
+          "magnitude": "large",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        },
+        {
+          "graph_id": "syn-small-world-50000-k8-r10-v1",
+          "graph_file": "syn-small-world-50000-k8-r10-v1.gr",
+          "family": "hot-pool",
+          "locality": 70,
+          "interval": 10,
+          "mode": "balanced-random",
+          "magnitude": "small",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        },
+        {
+          "graph_id": "syn-small-world-50000-k8-r10-v1",
+          "graph_file": "syn-small-world-50000-k8-r10-v1.gr",
+          "family": "hot-pool",
+          "locality": 70,
+          "interval": 100,
+          "mode": "balanced-random",
+          "magnitude": "small",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        },
+        {
+          "graph_id": "syn-small-world-50000-k8-r10-v1",
+          "graph_file": "syn-small-world-50000-k8-r10-v1.gr",
+          "family": "hot-pool",
+          "locality": 70,
+          "interval": 10,
+          "mode": "increase-only",
+          "magnitude": "large",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        },
+        {
+          "graph_id": "syn-small-world-50000-k8-r10-v1",
+          "graph_file": "syn-small-world-50000-k8-r10-v1.gr",
+          "family": "hot-pool",
+          "locality": 70,
+          "interval": 100,
+          "mode": "increase-only",
+          "magnitude": "large",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        },
+        {
+          "graph_id": "syn-small-world-50000-k8-r10-v1",
+          "graph_file": "syn-small-world-50000-k8-r10-v1.gr",
+          "family": "rotating-hot",
+          "locality": 80,
+          "interval": 10,
+          "mode": "balanced-random",
+          "magnitude": "small",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        },
+        {
+          "graph_id": "syn-small-world-50000-k8-r10-v1",
+          "graph_file": "syn-small-world-50000-k8-r10-v1.gr",
+          "family": "rotating-hot",
+          "locality": 80,
+          "interval": 100,
+          "mode": "balanced-random",
+          "magnitude": "small",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        },
+        {
+          "graph_id": "syn-small-world-50000-k8-r10-v1",
+          "graph_file": "syn-small-world-50000-k8-r10-v1.gr",
+          "family": "rotating-hot",
+          "locality": 80,
+          "interval": 10,
+          "mode": "increase-only",
+          "magnitude": "large",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        },
+        {
+          "graph_id": "syn-small-world-50000-k8-r10-v1",
+          "graph_file": "syn-small-world-50000-k8-r10-v1.gr",
+          "family": "rotating-hot",
+          "locality": 80,
+          "interval": 100,
+          "mode": "increase-only",
+          "magnitude": "large",
+          "budgets": [
+            25165824,
+            50331648
+          ]
+        }
+      ],
+      "seeds": [
+        101,
+        137,
+        181
+      ],
+      "repeats": [
+        0
+      ]
+    }
+  },
+  "graph_sha256": {
+    "regression": {
+      "ny-road-distance": "7b2446c7ffe6179efbc42af6812448e8cb782f12968ca2bb1d50d979343056d4",
+      "syn-grid-224x224-v1": "68ea3f6fb3351e026b850d631b3f5618a4dca8c80ba8d3ce5055543b14d04e23",
+      "syn-clustered-50000-c100-d6-v1": "787dc2f7722ce1c1dee61a465659d0c0447901ecd54e097c919ae012b9746800"
+    },
+    "holdout2": {
+      "ny-road-distance": "7b2446c7ffe6179efbc42af6812448e8cb782f12968ca2bb1d50d979343056d4",
+      "syn-scale-free-50000-m4-v1": "05b0186a56673b5665dd773738a943bf6d8ee364088949df2ed3c69d5d222ac8",
+      "syn-small-world-50000-k8-r10-v1": "08abafb16a2f58def0f2310fdedc18d5cdc4870e51b2f3f4cda02b2c8a04de55"
+    }
+  },
+  "statistics": "paired comparator/ADES-V3 log speedups; 95% t interval across 3 independent seeds",
+  "material_threshold": "10% point estimate plus CI entirely on comparator-winning/losing side of 1.0",
+  "performance_gate": "informational; exactness, trace/oracle identity and byte-budget failures are hard failures",
+  "result": {
+    "regression_regimes": 9,
+    "holdout2_regimes": 48,
+    "regression_v3_fastest_or_within_1pct": 1,
+    "holdout2_v3_fastest_or_within_1pct": 26,
+    "regression_material_regressions": 6,
+    "holdout2_material_regressions": 6,
+    "regression_material_wins": 25,
+    "holdout2_material_wins": 105,
+    "holdout2_zero_material_regressions": false,
+    "fastest_profile_counts": {
+      "holdout2:ADES": 1,
+      "holdout2:ADES-V2": 15,
+      "holdout2:ADES-V3": 20,
+      "holdout2:COLD": 10,
+      "holdout2:FREQ-LRU-REPAIR": 2,
+      "regression:ADES-V2": 2,
+      "regression:ADES-V3": 1,
+      "regression:B3L": 6
+    }
+  }
+}

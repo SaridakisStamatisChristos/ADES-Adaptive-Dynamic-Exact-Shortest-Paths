@@ -7,7 +7,7 @@
 #include <unordered_map>
 namespace ades {
 enum class RepairPolicy { Fixed, VertexOnly, WorkAware };
-enum class AdmissionPolicy { Disabled, Frequency, WorkAware, Economic };
+enum class AdmissionPolicy { Disabled, Frequency, WorkAware, Economic, EconomicFast };
 enum class EvictionPolicy { LRU, DebtAware, Economic };
 enum class MaintenancePolicy { FullRebuild, LocalRepair };
 enum class ScientificAblation {
@@ -18,6 +18,7 @@ enum class ScientificAblation {
  WorkDebtRepair,
  FullADES,
  PredictiveEconomic,
+ PredictiveEconomicFast,
 };
 struct Config {
  std::size_t resident_cap=4; std::uint32_t probation_queries=4; double promotion_ratio=1.05;
@@ -34,6 +35,10 @@ struct Config {
  std::uint32_t economic_min_observations=2;
  std::uint64_t economic_horizon_queries=16;
  double economic_replacement_margin=1.05;
+ // PR51 V3 keeps nonresident prediction entirely inside the fixed recent-source
+ // table. A longer finite horizon lets a second observed short reuse gap trigger
+ // residency when build payback is already positive, without changing V2.
+ bool economic_fast_nonresident=false;
  // Zero preserves legacy source-count-only behavior. Nonzero enables the PR43
  // common logical persistent-state byte budget in addition to resident_cap.
  std::uint64_t persistent_state_budget_bytes=0;
@@ -74,7 +79,7 @@ class ADES {
  double economic_build_ns_ewma_=0.0,economic_maintenance_ns_ewma_=0.0;
 
  bool admit(std::uint32_t source,double candidate_score);
- bool admit_economic(std::uint32_t source,SSSPState state,std::uint64_t build_ns,double candidate_value);
+ bool admit_economic(std::uint32_t source,SSSPState state,std::uint64_t build_ns,double candidate_value,const EconomicSource* history_override=nullptr);
  double resident_score(const Entry&)const;
  double economic_candidate_value(const EconomicSource&)const;
  double economic_resident_value(std::uint32_t,const Entry&)const;
