@@ -1,0 +1,21 @@
+{
+  "regression_regimes": 9,
+  "holdout2_regimes": 48,
+  "regression_v3_fastest_or_within_1pct": 1,
+  "holdout2_v3_fastest_or_within_1pct": 26,
+  "regression_material_regressions": 6,
+  "holdout2_material_regressions": 6,
+  "regression_material_wins": 25,
+  "holdout2_material_wins": 105,
+  "holdout2_zero_material_regressions": false,
+  "fastest_profile_counts": {
+    "holdout2:ADES": 1,
+    "holdout2:ADES-V2": 15,
+    "holdout2:ADES-V3": 20,
+    "holdout2:COLD": 10,
+    "holdout2:FREQ-LRU-REPAIR": 2,
+    "regression:ADES-V2": 2,
+    "regression:ADES-V3": 1,
+    "regression:B3L": 6
+  }
+}
