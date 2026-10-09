@@ -68,6 +68,46 @@ void push_or_decrease(ProgressiveFrontier& f, std::uint32_t vertex,
   sift_up(f, static_cast<std::size_t>(pos));
 }
 
+void remove_tentative(ProgressiveFrontier& f, std::uint32_t vertex) {
+  const auto pos = f.heap_pos[vertex];
+  if (pos < 0) return;
+  const auto index = static_cast<std::size_t>(pos);
+  const auto last = f.heap_vertices.back();
+  f.heap_vertices.pop_back();
+  f.heap_pos[vertex] = kUnseen;
+  if (index < f.heap_vertices.size()) {
+    f.heap_vertices[index] = last;
+    f.heap_pos[last] = static_cast<std::int64_t>(index);
+    if (index) sift_up(f, index);
+    const auto new_pos = f.heap_pos[last];
+    if (new_pos >= 0) sift_down(f, static_cast<std::size_t>(new_pos));
+  }
+  f.dist[vertex] = INF;
+  f.parent_edge[vertex] = -1;
+}
+
+void rekey_tentative(ProgressiveFrontier& f, std::uint32_t vertex,
+                     Distance distance, std::int64_t parent_edge) {
+  auto pos = f.heap_pos[vertex];
+  if (pos == kSettled)
+    throw std::logic_error("cannot re-key settled progressive vertex");
+  if (distance == INF) {
+    remove_tentative(f, vertex);
+    return;
+  }
+  if (pos == kUnseen) {
+    f.dist[vertex] = INF;
+    push_or_decrease(f, vertex, distance, parent_edge);
+    return;
+  }
+  f.dist[vertex] = distance;
+  f.parent_edge[vertex] = parent_edge;
+  auto index = static_cast<std::size_t>(pos);
+  if (index) sift_up(f, index);
+  pos = f.heap_pos[vertex];
+  if (pos >= 0) sift_down(f, static_cast<std::size_t>(pos));
+}
+
 std::uint32_t pop_min(ProgressiveFrontier& f) {
   if (f.heap_vertices.empty())
     throw std::logic_error("pop from empty progressive heap");
@@ -197,6 +237,60 @@ ProgressiveQueryResult progressive_bidirectional_query(
 
   result.distance = best;
   return result;
+}
+
+ProgressiveUpdateResult update_progressive_frontier(
+    const Graph& graph, ProgressiveFrontier& f, std::uint32_t edge_id,
+    const Edge& old_edge) {
+  if (edge_id >= graph.edge_count())
+    throw std::out_of_range("progressive update edge id");
+  const auto& edge = graph.edge(edge_id);
+  if (edge.from != old_edge.from || edge.to != old_edge.to)
+    throw std::logic_error("progressive update changed edge endpoints");
+  if (edge.weight == old_edge.weight) return ProgressiveUpdateResult::Filtered;
+
+  const auto u = edge.from;
+  const auto v = edge.to;
+  if (edge.weight < old_edge.weight) {
+    // If u has not been settled, ordinary future expansion of u will observe
+    // the new weight. With non-negative weights it cannot improve an already
+    // settled v before u itself is settled.
+    if (f.heap_pos[u] != kSettled) return ProgressiveUpdateResult::Filtered;
+    const auto candidate = sat_add(f.dist[u], edge.weight);
+    if (f.heap_pos[v] == kSettled) {
+      if (candidate < f.dist[v]) return ProgressiveUpdateResult::Invalidated;
+      return ProgressiveUpdateResult::Filtered;
+    }
+    if (candidate < f.dist[v]) {
+      push_or_decrease(f, v, candidate, static_cast<std::int64_t>(edge_id));
+      return ProgressiveUpdateResult::Repaired;
+    }
+    return ProgressiveUpdateResult::Filtered;
+  }
+
+  // An increase matters only if this exact edge currently supplies the best
+  // known label of its head. Otherwise future expansions automatically see the
+  // increased graph weight and all current labels remain valid upper bounds.
+  if (f.parent_edge[v] != static_cast<std::int64_t>(edge_id))
+    return ProgressiveUpdateResult::Filtered;
+  if (f.heap_pos[v] == kSettled)
+    return ProgressiveUpdateResult::Invalidated;
+
+  Distance best = INF;
+  std::int64_t best_edge = -1;
+  for (const auto arc : graph.in(v)) {
+    const auto pred = arc.to;
+    if (f.heap_pos[pred] != kSettled) continue;
+    const auto candidate = sat_add(f.dist[pred], graph.edge(arc.edge_id).weight);
+    if (candidate < best ||
+        (candidate == best &&
+         (best_edge < 0 || arc.edge_id < static_cast<std::uint32_t>(best_edge)))) {
+      best = candidate;
+      best_edge = static_cast<std::int64_t>(arc.edge_id);
+    }
+  }
+  rekey_tentative(f, v, best, best_edge);
+  return ProgressiveUpdateResult::Repaired;
 }
 
 SSSPState complete_progressive_sssp(const Graph& graph,
