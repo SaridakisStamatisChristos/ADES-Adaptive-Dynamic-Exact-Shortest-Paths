@@ -1,0 +1,32 @@
+name: ADES PR53 consumed development matrix
+
+on:
+  push:
+    branches:
+      - pr53-hazard-aware-hybrid
+    paths:
+      - 'tools/run_pr53_development.py'
+      - '.github/workflows/pr53-development.yml'
+      - 'include/ades/hazard_ades.hpp'
+      - 'src/hazard_ades.cpp'
+      - 'benchmarks/pr53_profile.cpp'
+      - 'CMakeLists.txt'
+
+jobs:
+  development:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Build isolated runners
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2 --target ades_workload_v2 ades_pr53_profile ades_hazard_tests
+          ./build/ades_hazard_tests
+      - name: Run consumed PR50/51/52 development cells
+        run: python3 tools/run_pr53_development.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr53-development-${{ github.sha }}
+          path: results/pr53-development/
+          retention-days: 90
