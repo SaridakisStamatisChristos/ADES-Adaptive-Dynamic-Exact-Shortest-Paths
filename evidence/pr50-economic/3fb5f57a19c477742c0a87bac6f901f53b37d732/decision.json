@@ -1,0 +1,21 @@
+{
+  "development_regimes": 36,
+  "holdout_regimes": 72,
+  "development_v2_fastest_or_within_1pct": 22,
+  "holdout_v2_fastest_or_within_1pct": 34,
+  "development_material_regressions": 6,
+  "holdout_material_regressions": 1,
+  "development_material_wins": 33,
+  "holdout_material_wins": 145,
+  "holdout_zero_material_regressions": false,
+  "fastest_profile_counts": {
+    "development:ADES": 4,
+    "development:ADES-V2": 19,
+    "development:B3L": 6,
+    "development:COLD": 4,
+    "development:FREQ-LRU-REPAIR": 3,
+    "holdout:ADES": 17,
+    "holdout:ADES-V2": 28,
+    "holdout:COLD": 27
+  }
+}

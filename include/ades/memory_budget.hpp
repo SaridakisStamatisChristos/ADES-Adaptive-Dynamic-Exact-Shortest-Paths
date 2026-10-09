@@ -100,13 +100,33 @@ inline std::uint64_t ades_resident_entry_accounted_bytes_for_vertices(
                        ades_resident_metadata_bytes());
 }
 
-// ADES nonresident persistent metadata.
+// ADES-v1 nonresident persistent metadata.
 inline constexpr std::uint64_t ades_probation_entry_accounted_bytes() {
   return sizeof(std::uint32_t) + sizeof(std::uint32_t) + sizeof(std::uint64_t);
 }
 
 inline constexpr std::uint64_t ades_cooldown_entry_accounted_bytes() {
   return sizeof(std::uint32_t) + sizeof(std::uint64_t);
+}
+
+// PR50 ADES-v2 predictive-economic metadata. The accounting is logical: each
+// map entry includes its source key and semantic fields, while allocator/node
+// overhead remains represented by RSS just like the older policies.
+inline constexpr std::uint64_t ades_economic_source_accounted_bytes() {
+  return sizeof(std::uint32_t) + 2u * sizeof(std::uint64_t) + 3u * sizeof(double);
+}
+
+inline constexpr std::uint64_t ades_economic_resident_accounted_bytes() {
+  return sizeof(std::uint32_t) + sizeof(std::uint64_t) + 3u * sizeof(double);
+}
+
+inline constexpr std::uint64_t ades_economic_recent_slot_accounted_bytes() {
+  return sizeof(std::uint32_t) + 3u * sizeof(std::uint64_t) + sizeof(std::uint8_t);
+}
+
+inline std::uint64_t ades_economic_recent_table_accounted_bytes(std::size_t slots) {
+  return accounted_mul(static_cast<std::uint64_t>(slots),
+                       ades_economic_recent_slot_accounted_bytes());
 }
 
 } // namespace ades

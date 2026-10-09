@@ -129,6 +129,7 @@ static ScientificAblation parse_ablation(const std::string& profile) {
   if (profile == "WORK-LRU-REPAIR") return ScientificAblation::WorkLruRepair;
   if (profile == "WORK-DEBT-REPAIR") return ScientificAblation::WorkDebtRepair;
   if (profile == "ADES") return ScientificAblation::FullADES;
+  if (profile == "ADES-V2") return ScientificAblation::PredictiveEconomic;
   throw std::invalid_argument("unknown ADES ablation profile: " + profile);
 }
 
