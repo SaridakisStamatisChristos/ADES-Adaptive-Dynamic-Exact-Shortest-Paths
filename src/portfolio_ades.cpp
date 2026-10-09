@@ -62,14 +62,14 @@ bool PortfolioADES::graph_favors_eager() const {
   if (!cfg_.resident_cap || !graph_.vertex_count()) return false;
   const double mean_degree =
       double(graph_.edge_count()) / double(graph_.vertex_count());
-  std::size_t max_degree = 0;
-  for (std::uint32_t v = 0; v < graph_.vertex_count(); ++v)
-    max_degree = std::max(max_degree, graph_.out(v).size());
 
-  // This is a cost-shape classifier, not a dataset classifier: low average
-  // branching keeps complete SSSP construction relatively close to a point
-  // query, while a large hub is a strong warning against eager materialization.
-  if (mean_degree > 4.5 || max_degree > 32) return false;
+  // O(1) cost-shape classifier using graph metadata already available after
+  // loading. The previous development version scanned every adjacency list for
+  // max degree in the constructor; because construction is outside the timed
+  // online trace, that created hidden O(V+E) policy work. Mean branching is
+  // sufficient to reject the known high-branching classes while keeping this
+  // decision auditable and free of untimed graph traversal.
+  if (mean_degree > 4.5) return false;
 
   if (!cfg_.persistent_state_budget_bytes) return true;
   const auto full_set = accounted_add(
@@ -168,6 +168,22 @@ void PortfolioADES::update(std::uint32_t edge_id, Weight new_weight) {
     }
   }
   refresh_memory();
+}
+
+PortfolioStats PortfolioADES::stats() const noexcept {
+  if (eager_mode_) return stats_;
+  PortfolioStats out;
+  if (!fallback_) return out;
+  const auto& s = fallback_->stats();
+  out.cold_queries = s.cold_queries;
+  out.resident_queries = s.resident_queries;
+  out.promotions = s.promotions;
+  out.evictions = s.evictions;
+  out.rebuilds = s.rebuilds;
+  out.accounted_algorithm_state_bytes = s.accounted_algorithm_state_bytes;
+  out.peak_accounted_algorithm_state_bytes =
+      s.peak_accounted_algorithm_state_bytes;
+  return out;
 }
 
 std::uint64_t PortfolioADES::accounted_algorithm_state_bytes() const {
