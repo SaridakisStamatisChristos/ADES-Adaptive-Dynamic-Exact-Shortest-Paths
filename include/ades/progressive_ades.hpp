@@ -7,6 +7,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <unordered_map>
 
 namespace ades {
@@ -102,8 +103,9 @@ class ProgressiveADES {
   void erase_partial(std::unordered_map<std::uint32_t, PartialEntry>::iterator it,
                      bool invalidation, bool eviction);
   void prune_stale_partials();
-  bool ensure_partial_room(std::uint64_t required,
-                           std::uint32_t protected_source = UINT32_MAX);
+  bool ensure_partial_room(
+      std::uint64_t required,
+      std::uint32_t protected_source = std::numeric_limits<std::uint32_t>::max());
   double estimate_full_build_ns(const PartialEntry& entry) const;
   double partial_promotion_value(const PartialEntry& entry) const;
   double resident_value(const ResidentEntry& entry) const;
