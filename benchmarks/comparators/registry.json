@@ -1,0 +1,193 @@
+{
+  "schema": "ades-comparator-registry-v1",
+  "contract_version": "1.0",
+  "claim_ids": ["C4", "C7", "C-SOTA"],
+  "status_classes": {
+    "DIRECT": "Admissible as direct publication evidence for C-SOTA under matched conditions.",
+    "PENDING": "Potentially direct, but one or more qualification gates are not yet demonstrated.",
+    "CONTEXT": "Scientifically relevant but materially different assumptions prevent direct matched ranking.",
+    "INELIGIBLE": "Violates one or more frozen hard problem-domain requirements."
+  },
+  "hard_gates": [
+    "exact_answers",
+    "online_operations",
+    "directed_graphs",
+    "nonnegative_weighted_graphs",
+    "weight_increases",
+    "weight_decreases",
+    "no_future_knowledge",
+    "arbitrary_query_sources_supported",
+    "matched_trace_adapter",
+    "independent_oracle_validation",
+    "persistent_memory_budget_enforceable",
+    "persistent_memory_accounting_auditable",
+    "preprocessing_semantics_declared",
+    "timing_boundary_declared",
+    "implementation_pinned",
+    "license_compatible_for_reproduction"
+  ],
+  "comparators": [
+    {
+      "id": "networkit-dyndijkstra",
+      "name": "NetworKit DynDijkstra",
+      "kind": "external_implementation",
+      "status": "PENDING",
+      "implementation": {
+        "repository": "https://github.com/networkit/networkit",
+        "commit": "ab420840dbb8a61fcb1ea0d89e5acc44fe66f2ab",
+        "primary_path": "include/networkit/distance/DynDijkstra.hpp",
+        "license": "MIT",
+        "pinned": true
+      },
+      "references": [
+        {"type": "source", "url": "https://github.com/networkit/networkit/blob/ab420840dbb8a61fcb1ea0d89e5acc44fe66f2ab/include/networkit/distance/DynDijkstra.hpp"},
+        {"type": "source", "url": "https://github.com/networkit/networkit/blob/ab420840dbb8a61fcb1ea0d89e5acc44fe66f2ab/networkit/cpp/distance/DynDijkstra.cpp"},
+        {"type": "license", "url": "https://github.com/networkit/networkit/blob/ab420840dbb8a61fcb1ea0d89e5acc44fe66f2ab/License.txt"},
+        {"type": "documentation", "url": "https://networkit.github.io/dev-docs/notebooks/Dynamics.html"}
+      ],
+      "declared_semantics": {
+        "algorithm_family": "dynamic single-source Dijkstra",
+        "source_model": "one fixed source per DynDijkstra instance",
+        "query_output": "single-source distance state",
+        "update_api": "GraphEvent update/updateBatch",
+        "notes": "Executable dynamic weighted SSSP exists, but ADES has not yet demonstrated the frozen directed mixed-weight-update, arbitrary-source, trace, timing, oracle, and equal-byte requirements."
+      },
+      "gates": {
+        "exact_answers": "PENDING_TEST",
+        "online_operations": "PASS",
+        "directed_graphs": "PENDING_TEST",
+        "nonnegative_weighted_graphs": "PASS",
+        "weight_increases": "PENDING_TEST",
+        "weight_decreases": "PENDING_TEST",
+        "no_future_knowledge": "PASS",
+        "arbitrary_query_sources_supported": "PENDING_ADAPTER",
+        "matched_trace_adapter": "MISSING",
+        "independent_oracle_validation": "MISSING",
+        "persistent_memory_budget_enforceable": "MISSING",
+        "persistent_memory_accounting_auditable": "MISSING",
+        "preprocessing_semantics_declared": "PASS",
+        "timing_boundary_declared": "MISSING",
+        "implementation_pinned": "PASS",
+        "license_compatible_for_reproduction": "PASS"
+      },
+      "blockers": [
+        "No ADES trace-replay adapter exists.",
+        "Mixed increase/decrease directed semantics have not been independently validated under the frozen workload model.",
+        "No fair arbitrary-source construction/eviction policy has been integrated.",
+        "No PR43-compatible persistent-state byte enforcement exists."
+      ]
+    },
+    {
+      "id": "ramalingam-reps-1996",
+      "name": "Ramalingam-Reps incremental SSSP",
+      "kind": "literature_algorithm",
+      "status": "PENDING",
+      "implementation": {"repository": null, "commit": null, "primary_path": null, "license": null, "pinned": false},
+      "references": [
+        {"type": "paper", "title": "An Incremental Algorithm for a Generalization of the Shortest-Path Problem", "doi": "10.1006/JAGM.1996.0046", "url": "https://research.ibm.com/publications/an-incremental-algorithm-for-a-generalization-of-the-shortest-path-problem"}
+      ],
+      "declared_semantics": {
+        "algorithm_family": "incremental single-source shortest paths",
+        "source_model": "single source",
+        "query_output": "single-source shortest-path state",
+        "update_api": "paper covers heterogeneous graph modifications including edge-length changes",
+        "notes": "Core theory is highly relevant, but PR48 has no pinned executable implementation suitable for matched empirical qualification."
+      },
+      "gates": {
+        "exact_answers": "PASS_THEORY", "online_operations": "PASS_THEORY", "directed_graphs": "PASS_THEORY", "nonnegative_weighted_graphs": "PASS_THEORY",
+        "weight_increases": "PASS_THEORY", "weight_decreases": "PASS_THEORY", "no_future_knowledge": "PASS_THEORY", "arbitrary_query_sources_supported": "PENDING_ADAPTER",
+        "matched_trace_adapter": "MISSING", "independent_oracle_validation": "MISSING", "persistent_memory_budget_enforceable": "MISSING", "persistent_memory_accounting_auditable": "MISSING",
+        "preprocessing_semantics_declared": "PASS_THEORY", "timing_boundary_declared": "MISSING", "implementation_pinned": "FAIL", "license_compatible_for_reproduction": "UNKNOWN"
+      },
+      "blockers": ["No pinned executable implementation is qualified.", "No matched-trace/oracle evidence exists.", "No PR43-compatible memory-budget integration exists."]
+    },
+    {
+      "id": "frigioni-marchetti-spaccamela-nanni",
+      "name": "Frigioni-Marchetti-Spaccamela-Nanni fully dynamic SSSP",
+      "kind": "literature_algorithm",
+      "status": "PENDING",
+      "implementation": {"repository": null, "commit": null, "primary_path": null, "license": null, "pinned": false},
+      "references": [
+        {"type": "paper", "title": "Fully dynamic algorithms for maintaining shortest path trees", "doi": "10.1006/jagm.1999.1048", "url": "https://iris.uniroma1.it/handle/11573/70301"},
+        {"type": "paper", "title": "Fully dynamic shortest paths in digraphs with arbitrary arc weights", "doi": "10.1016/S0196-6774(03)00082-8", "url": "https://www.sciencedirect.com/science/article/pii/S0196677403000828"}
+      ],
+      "declared_semantics": {
+        "algorithm_family": "fully dynamic single-source shortest paths",
+        "source_model": "single source",
+        "query_output": "maintained distances/shortest paths",
+        "update_api": "theory covers fully dynamic directed shortest-path maintenance and weight changes",
+        "notes": "The problem model is close to ADES dynamic SSSP, but no vetted executable reference implementation is currently qualified."
+      },
+      "gates": {
+        "exact_answers": "PASS_THEORY", "online_operations": "PASS_THEORY", "directed_graphs": "PASS_THEORY", "nonnegative_weighted_graphs": "PASS_THEORY",
+        "weight_increases": "PASS_THEORY", "weight_decreases": "PASS_THEORY", "no_future_knowledge": "PASS_THEORY", "arbitrary_query_sources_supported": "PENDING_ADAPTER",
+        "matched_trace_adapter": "MISSING", "independent_oracle_validation": "MISSING", "persistent_memory_budget_enforceable": "MISSING", "persistent_memory_accounting_auditable": "MISSING",
+        "preprocessing_semantics_declared": "PASS_THEORY", "timing_boundary_declared": "MISSING", "implementation_pinned": "FAIL", "license_compatible_for_reproduction": "UNKNOWN"
+      },
+      "blockers": ["No maintained reference implementation has been qualified.", "No arbitrary-source matched adapter exists.", "No empirical memory-accounting integration exists."]
+    },
+    {
+      "id": "routingkit-cch",
+      "name": "RoutingKit Customizable Contraction Hierarchies",
+      "kind": "external_implementation",
+      "status": "CONTEXT",
+      "implementation": {
+        "repository": "https://github.com/RoutingKit/RoutingKit",
+        "commit": "54d49bb0cdea56dde182357522e4e86a03c57852",
+        "primary_path": "include/routingkit/customizable_contraction_hierarchy.h",
+        "license": "BSD-2-Clause",
+        "pinned": true
+      },
+      "references": [
+        {"type": "source", "url": "https://github.com/RoutingKit/RoutingKit/blob/54d49bb0cdea56dde182357522e4e86a03c57852/include/routingkit/customizable_contraction_hierarchy.h"},
+        {"type": "license", "url": "https://github.com/RoutingKit/RoutingKit/blob/54d49bb0cdea56dde182357522e4e86a03c57852/LICENSE"},
+        {"type": "paper", "title": "Customizable Contraction Hierarchies", "url": "https://github.com/RoutingKit/RoutingKit"}
+      ],
+      "declared_semantics": {
+        "algorithm_family": "preprocessed exact routing index with metric customization",
+        "source_model": "arbitrary point-to-point query after topology preprocessing/customization",
+        "query_output": "exact route query",
+        "update_api": "metric customization rather than one online edge-update primitive matched to ADES",
+        "notes": "Exact routing context is valuable, but preprocessing/index memory and customization phases materially differ from the frozen ADES operation model."
+      },
+      "gates": {
+        "exact_answers": "PASS", "online_operations": "ASSUMPTION_MISMATCH", "directed_graphs": "PASS", "nonnegative_weighted_graphs": "PASS",
+        "weight_increases": "CONTEXT_ONLY", "weight_decreases": "CONTEXT_ONLY", "no_future_knowledge": "PASS", "arbitrary_query_sources_supported": "PASS",
+        "matched_trace_adapter": "MISSING", "independent_oracle_validation": "MISSING", "persistent_memory_budget_enforceable": "MISSING", "persistent_memory_accounting_auditable": "POSSIBLE_NOT_INTEGRATED",
+        "preprocessing_semantics_declared": "ASSUMPTION_MISMATCH", "timing_boundary_declared": "MISSING", "implementation_pinned": "PASS", "license_compatible_for_reproduction": "PASS"
+      },
+      "mismatches": [
+        "Requires topology/index preprocessing unlike the frozen ADES cold-start lifecycle.",
+        "Weight changes are handled through customization phases rather than the frozen one-operation online update interface.",
+        "Index memory and preprocessing require a separate assumption class."
+      ]
+    },
+    {
+      "id": "d-star-lite",
+      "name": "D* Lite",
+      "kind": "literature_algorithm",
+      "status": "CONTEXT",
+      "implementation": {"repository": null, "commit": null, "primary_path": null, "license": null, "pinned": false},
+      "references": [
+        {"type": "paper", "title": "D* Lite", "url": "https://aaai.org/papers/00476-aaai02-072-d-lite/"}
+      ],
+      "declared_semantics": {
+        "algorithm_family": "incremental heuristic replanning",
+        "source_model": "goal-directed replanning for related navigation tasks",
+        "query_output": "path/planning result",
+        "update_api": "environment/cost changes between related planning episodes",
+        "notes": "Exact within its planning model, but fixed-goal/heuristic incremental-search assumptions differ materially from ADES arbitrary repeated-source point-to-point streams."
+      },
+      "gates": {
+        "exact_answers": "PASS_THEORY", "online_operations": "PASS_THEORY", "directed_graphs": "NOT_ESTABLISHED_FOR_ADES_CONTRACT", "nonnegative_weighted_graphs": "PASS_THEORY",
+        "weight_increases": "CONTEXT_ONLY", "weight_decreases": "CONTEXT_ONLY", "no_future_knowledge": "PASS_THEORY", "arbitrary_query_sources_supported": "ASSUMPTION_MISMATCH",
+        "matched_trace_adapter": "MISSING", "independent_oracle_validation": "MISSING", "persistent_memory_budget_enforceable": "MISSING", "persistent_memory_accounting_auditable": "MISSING",
+        "preprocessing_semantics_declared": "ASSUMPTION_MISMATCH", "timing_boundary_declared": "MISSING", "implementation_pinned": "FAIL", "license_compatible_for_reproduction": "UNKNOWN"
+      },
+      "mismatches": [
+        "Fixed-goal related-task replanning is not the arbitrary repeated-source query model frozen for C-SOTA.",
+        "Heuristic-search state introduces a different information/workload model."
+      ]
+    }
+  ]
+}
