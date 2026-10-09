@@ -65,6 +65,14 @@ int main(){
  require(!economic.admission_hysteresis_enabled&&!economic.cooldown_enabled,"economic policy must use its own switching margin");
  require(std::string_view(scientific_ablation_name(ScientificAblation::PredictiveEconomic))=="ADES-V2","economic profile name mismatch");
 
+ const auto economic_fast=config_for_scientific_ablation(ScientificAblation::PredictiveEconomicFast,base);
+ require(economic_fast.admission_policy==AdmissionPolicy::EconomicFast,"fast economic admission mismatch");
+ require(economic_fast.eviction_policy==EvictionPolicy::Economic,"fast economic eviction mismatch");
+ require(economic_fast.maintenance_policy==MaintenancePolicy::LocalRepair,"fast economic maintenance mismatch");
+ require(economic_fast.economic_fast_nonresident,"fast economic mode not enabled");
+ require(economic_fast.economic_horizon_queries==32,"fast economic horizon mismatch");
+ require(std::string_view(scientific_ablation_name(ScientificAblation::PredictiveEconomicFast))=="ADES-V3","fast economic profile name mismatch");
+
  ADES cold_engine(graph(),cold);
  require(cold_engine.query(0,4)==5,"cold exactness failure");
  require(cold_engine.query(0,4)==5,"cold repeat exactness failure");
@@ -90,10 +98,10 @@ int main(){
  require(repair_engine.query(0,4)==4,"repair profile update exactness failure");
  require(repair_engine.stats().timing.reconciles(),"repair profile telemetry failed reconciliation");
 
- Config economic_fast=economic;
- economic_fast.economic_horizon_queries=1024; // force a clearly profitable repeated source in this tiny fixture.
- economic_fast.economic_replacement_margin=1.0;
- ADES economic_engine(graph(),economic_fast);
+ Config economic_v2=economic;
+ economic_v2.economic_horizon_queries=1024; // force a clearly profitable repeated source in this tiny fixture.
+ economic_v2.economic_replacement_margin=1.0;
+ ADES economic_engine(graph(),economic_v2);
  const auto fixed_predictor_bytes=economic_engine.accounted_algorithm_state_bytes();
  require(fixed_predictor_bytes>0,"economic predictor must be charged to persistent-state accounting");
  require(economic_engine.query(0,4)==5,"economic first-query exactness failure");
@@ -116,6 +124,33 @@ int main(){
  require(unique_engine.accounted_algorithm_state_bytes()==unique_before,
          "first-sight sources unexpectedly created unbounded economic metadata");
  require(unique_engine.resident_count()==0,"unique-source stream unexpectedly created residents");
+
+ Config fast_fixture=economic_fast;
+ fast_fixture.economic_horizon_queries=1024;
+ fast_fixture.economic_replacement_margin=1.0;
+ ADES fast_engine(graph(),fast_fixture);
+ const auto fast_fixed_bytes=fast_engine.accounted_algorithm_state_bytes();
+ require(fast_fixed_bytes==fixed_predictor_bytes,"V3 fixed-table accounting must match V2 fixed predictor base");
+ require(fast_engine.query(0,4)==5,"V3 first-query exactness failure");
+ require(fast_engine.accounted_algorithm_state_bytes()==fast_fixed_bytes,
+         "V3 first sight unexpectedly allocated per-source metadata");
+ require(fast_engine.query(0,4)==5,"V3 second-touch exactness failure");
+ require(fast_engine.resident(0),"V3 failed to promote a clearly profitable second-touch source");
+ require(fast_engine.stats().fused_promotions==1,"V3 promotion was not fused");
+ require(fast_engine.stats().timing.reconciles(),"V3 telemetry failed reconciliation");
+ fast_engine.update(0,1);
+ require(fast_engine.query(0,4)==4,"V3 update exactness failure");
+ require(fast_engine.stats().timing.reconciles(),"V3 post-update telemetry failed reconciliation");
+
+ ADES fast_unique(graph(),economic_fast);
+ const auto fast_unique_before=fast_unique.accounted_algorithm_state_bytes();
+ require(fast_unique.query(0,4)==5,"V3 unique source 0 exactness failure");
+ require(fast_unique.query(1,4)==3,"V3 unique source 1 exactness failure");
+ require(fast_unique.query(2,4)==4,"V3 unique source 2 exactness failure");
+ require(fast_unique.query(3,4)==2,"V3 unique source 3 exactness failure");
+ require(fast_unique.accounted_algorithm_state_bytes()==fast_unique_before,
+         "V3 cold path changed logical persistent bytes");
+ require(fast_unique.resident_count()==0,"V3 unique-source stream unexpectedly created residents");
 
  return 0;
 }
