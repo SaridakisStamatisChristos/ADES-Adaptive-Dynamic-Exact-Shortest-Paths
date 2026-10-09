@@ -1,0 +1,106 @@
+name: ADES PR50 predictive economic gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - pr50-predictive-economic-residency
+  workflow_dispatch:
+    inputs:
+      queries:
+        description: Queries per trace for full PR50 benchmark
+        required: false
+        default: "60"
+      phase:
+        description: development, holdout, or both
+        required: false
+        default: "both"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Validate Python
+        run: python3 -m py_compile tools/run_pr50_economic.py
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+      - name: Run PR50 structural smoke
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          python3 tools/run_pr50_economic.py \
+            --repo . --build build --output results/pr50-smoke \
+            --queries 12 --smoke
+          test -s results/pr50-smoke/measurements.csv
+          test -s results/pr50-smoke/summary.csv
+          test -s results/pr50-smoke/confidence.csv
+          test -s results/pr50-smoke/ANALYSIS.md
+          test -s results/pr50-smoke/decision.json
+          test -s results/pr50-smoke/manifest.json
+          test -s results/pr50-smoke/SHA256SUMS
+      - name: Upload smoke evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr50-economic-smoke
+          path: results/pr50-smoke
+          if-no-files-found: error
+          retention-days: 30
+
+  full:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[pr50-full]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Verify committed NY graph
+        run: bash tools/verify_ny_dimacs.sh benchmarks/data
+      - name: Validate Python
+        run: python3 -m py_compile tools/run_pr50_economic.py tools/generate_synthetic_graphs.py
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+      - name: Run PR50 development and holdout benchmark
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          phase="${{ inputs.phase }}"
+          queries="${{ inputs.queries }}"
+          if [ -z "$phase" ]; then phase=both; fi
+          if [ -z "$queries" ]; then queries=60; fi
+          python3 tools/run_pr50_economic.py \
+            --repo . --build build --output results/pr50-economic \
+            --queries "$queries" --phase "$phase"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('results/pr50-economic')
+          decision = json.loads((p / 'decision.json').read_text())
+          assert 'development_material_regressions' in decision
+          assert 'holdout_material_regressions' in decision
+          for name in ('measurements.csv','summary.csv','confidence.csv','ANALYSIS.md','manifest.json','SHA256SUMS'):
+              assert (p / name).is_file() and (p / name).stat().st_size > 0, name
+          PY
+      - name: Upload full PR50 evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr50-predictive-economic-full
+          path: results/pr50-economic
+          if-no-files-found: error
+          retention-days: 90
