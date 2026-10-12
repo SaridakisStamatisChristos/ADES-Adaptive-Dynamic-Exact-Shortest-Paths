@@ -2,7 +2,30 @@
 #include <algorithm>
 #include <functional>
 #include <queue>
+#include <vector>
 namespace ades {
+namespace {
+using P=std::pair<Distance,std::uint32_t>;
+struct BidirectionalWorkspace {
+ std::vector<Distance> df,db;
+ std::vector<std::uint32_t> mf,mb;
+ std::vector<P> qf,qb;
+ std::uint32_t epoch=0;
+ void reset(std::size_t n){
+  if(df.size()<n){df.resize(n);db.resize(n);mf.resize(n,0);mb.resize(n,0);}
+  ++epoch;
+  if(epoch==0){std::fill(mf.begin(),mf.end(),0);std::fill(mb.begin(),mb.end(),0);epoch=1;}
+  qf.clear();qb.clear();
+ }
+ Distance forward(std::uint32_t v)const{return mf[v]==epoch?df[v]:INF;}
+ Distance backward(std::uint32_t v)const{return mb[v]==epoch?db[v]:INF;}
+ void set_forward(std::uint32_t v,Distance d){mf[v]=epoch;df[v]=d;}
+ void set_backward(std::uint32_t v,Distance d){mb[v]=epoch;db[v]=d;}
+};
+thread_local BidirectionalWorkspace bidirectional_workspace;
+inline void heap_push(std::vector<P>&q,P value){q.push_back(value);std::push_heap(q.begin(),q.end(),std::greater<P>{});}
+inline P heap_pop(std::vector<P>&q){std::pop_heap(q.begin(),q.end(),std::greater<P>{});auto value=q.back();q.pop_back();return value;}
+}
 void set_parent(const Graph& g,SSSPState& s,std::uint32_t v,std::int64_t edge_id){
  auto old=s.parent_edge[v];if(old==edge_id)return;
  if(old>=0){
@@ -22,7 +45,7 @@ SSSPState dijkstra(const Graph& g,std::uint32_t s){
  SSSPState r{s,std::vector<Distance>(n,INF),std::vector<std::int64_t>(n,-1),
   std::vector<std::int64_t>(n,-1),std::vector<std::int64_t>(n,-1),std::vector<std::int64_t>(n,-1),
   std::vector<std::uint32_t>(n,0),0};
- using P=std::pair<Distance,std::uint32_t>;std::priority_queue<P,std::vector<P>,std::greater<P>> q;
+ std::priority_queue<P,std::vector<P>,std::greater<P>> q;
  r.dist[s]=0;q.push({0,s});
  while(!q.empty()){auto [du,u]=q.top();q.pop();if(du!=r.dist[u])continue;
   for(auto a:g.out(u)){auto&e=g.edge(a.edge_id);auto nd=sat_add(du,e.weight);
@@ -32,17 +55,16 @@ SSSPState dijkstra(const Graph& g,std::uint32_t s){
 }
 BidirectionalResult bidirectional_dijkstra_profiled(const Graph& g,std::uint32_t s,std::uint32_t t){
  BidirectionalResult result;if(s==t){result.distance=0;return result;}
- using P=std::pair<Distance,std::uint32_t>;
- std::vector<Distance> df(g.vertex_count(),INF),db(g.vertex_count(),INF);
- std::priority_queue<P,std::vector<P>,std::greater<P>> qf,qb;df[s]=0;db[t]=0;qf.push({0,s});qb.push({0,t});Distance best=INF;
- while(!qf.empty()&&!qb.empty()){
-  if(sat_add(qf.top().first,qb.top().first)>=best)break;
-  if(qf.top().first<=qb.top().first){auto [du,u]=qf.top();qf.pop();if(du!=df[u])continue;result.settled++;
-   if(db[u]<INF)best=std::min(best,sat_add(du,db[u]));
-   for(auto a:g.out(u)){result.edge_scans++;auto nd=sat_add(du,g.edge(a.edge_id).weight);if(nd<df[a.to]){df[a.to]=nd;qf.push({nd,a.to});}if(db[a.to]<INF)best=std::min(best,sat_add(nd,db[a.to]));}
-  }else{auto [du,u]=qb.top();qb.pop();if(du!=db[u])continue;result.settled++;
-   if(df[u]<INF)best=std::min(best,sat_add(du,df[u]));
-   for(auto a:g.in(u)){result.edge_scans++;auto nd=sat_add(du,g.edge(a.edge_id).weight);if(nd<db[a.to]){db[a.to]=nd;qb.push({nd,a.to});}if(df[a.to]<INF)best=std::min(best,sat_add(nd,df[a.to]));}
+ auto&ws=bidirectional_workspace;ws.reset(g.vertex_count());
+ ws.set_forward(s,0);ws.set_backward(t,0);heap_push(ws.qf,{0,s});heap_push(ws.qb,{0,t});Distance best=INF;
+ while(!ws.qf.empty()&&!ws.qb.empty()){
+  if(sat_add(ws.qf.front().first,ws.qb.front().first)>=best)break;
+  if(ws.qf.front().first<=ws.qb.front().first){auto [du,u]=heap_pop(ws.qf);if(du!=ws.forward(u))continue;result.settled++;
+   const auto bu=ws.backward(u);if(bu<INF)best=std::min(best,sat_add(du,bu));
+   for(auto a:g.out(u)){result.edge_scans++;auto nd=sat_add(du,g.edge(a.edge_id).weight);if(nd<ws.forward(a.to)){ws.set_forward(a.to,nd);heap_push(ws.qf,{nd,a.to});}const auto b=ws.backward(a.to);if(b<INF)best=std::min(best,sat_add(nd,b));}
+  }else{auto [du,u]=heap_pop(ws.qb);if(du!=ws.backward(u))continue;result.settled++;
+   const auto fu=ws.forward(u);if(fu<INF)best=std::min(best,sat_add(du,fu));
+   for(auto a:g.in(u)){result.edge_scans++;auto nd=sat_add(du,g.edge(a.edge_id).weight);if(nd<ws.backward(a.to)){ws.set_backward(a.to,nd);heap_push(ws.qb,{nd,a.to});}const auto f=ws.forward(a.to);if(f<INF)best=std::min(best,sat_add(nd,f));}
   }}
  result.distance=best;return result;
 }
