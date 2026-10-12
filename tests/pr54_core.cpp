@@ -98,9 +98,34 @@ static void randomized_tight_nonparent_filter_differential() {
   }
 }
 
+static void reusable_bidirectional_workspace_differential() {
+  for (std::uint64_t seed = 100; seed < 112; ++seed) {
+    std::mt19937_64 rng(seed);
+    Graph g(64);
+    for (int i = 0; i < 640; ++i) {
+      const auto u = static_cast<std::uint32_t>(rng() % 64);
+      const auto v = static_cast<std::uint32_t>(rng() % 64);
+      if (u != v) g.add_edge(u, v, static_cast<Weight>(rng() % 32));
+    }
+    for (int op = 0; op < 3000; ++op) {
+      if (g.edge_count() && op % 11 == 0) {
+        const auto edge_id = static_cast<std::uint32_t>(rng() % g.edge_count());
+        g.update_weight(edge_id, static_cast<Weight>(rng() % 32));
+        continue;
+      }
+      const auto source = static_cast<std::uint32_t>(rng() % 64);
+      const auto target = static_cast<std::uint32_t>(rng() % 64);
+      const auto expected = dijkstra(g, source).dist[target];
+      const auto result = bidirectional_dijkstra_profiled(g, source, target);
+      assert(result.distance == expected);
+    }
+  }
+}
+
 int main() {
   tight_nonparent_increase_is_read_only();
   parallel_tight_nonparent_increase_is_filtered();
   zero_weight_equal_witness_is_filtered();
   randomized_tight_nonparent_filter_differential();
+  reusable_bidirectional_workspace_differential();
 }
