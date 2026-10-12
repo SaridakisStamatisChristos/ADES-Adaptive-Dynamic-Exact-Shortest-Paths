@@ -28,15 +28,15 @@ static std::vector<std::uint32_t> subtree_sizes(const Graph& g,
     const auto u = stack.back();
     stack.pop_back();
     order.push_back(u);
-    for (auto child = s.first_child[u]; child >= 0;
-         child = s.next_sibling[static_cast<std::uint32_t>(child)]) {
-      stack.push_back(static_cast<std::uint32_t>(child));
+    for (auto child = s.first_child[u]; child != kNoIndex;
+         child = s.next_sibling[child]) {
+      stack.push_back(child);
     }
   }
   for (auto it = order.rbegin(); it != order.rend(); ++it) {
     const auto v = *it;
-    if (v != s.source && s.parent_edge[v] >= 0) {
-      sizes[g.edge(static_cast<std::uint32_t>(s.parent_edge[v])).from] += sizes[v];
+    if (v != s.source && s.parent_edge[v] != kNoIndex) {
+      sizes[g.edge(s.parent_edge[v]).from] += sizes[v];
     }
   }
   return sizes;
@@ -47,17 +47,17 @@ static std::uint32_t pick_edge(const Graph& g, const SSSPState& s,
                                bool catastrophic, std::mt19937_64& rng) {
   std::vector<std::uint32_t> ids;
   for (std::uint32_t v = 0; v < g.vertex_count(); ++v) {
-    if (s.parent_edge[v] < 0) continue;
+    if (s.parent_edge[v] == kNoIndex) continue;
     const auto subtree = sizes[v];
     const bool eligible = catastrophic
                               ? subtree >= std::max<std::size_t>(2, g.vertex_count() / 4)
                               : subtree <= std::max<std::size_t>(8, g.vertex_count() / 1000);
-    if (eligible) ids.push_back(static_cast<std::uint32_t>(s.parent_edge[v]));
+    if (eligible) ids.push_back(s.parent_edge[v]);
   }
   if (ids.empty()) {
     for (std::uint32_t v = 0; v < g.vertex_count(); ++v) {
-      if (s.parent_edge[v] >= 0) {
-        ids.push_back(static_cast<std::uint32_t>(s.parent_edge[v]));
+      if (s.parent_edge[v] != kNoIndex) {
+        ids.push_back(s.parent_edge[v]);
       }
     }
   }
@@ -92,7 +92,7 @@ int main(int argc, char** argv) {
     for (std::size_t tries = 0; tries < base.vertex_count(); ++tries) {
       bool any = false;
       for (auto parent : model.parent_edge) {
-        if (parent >= 0) {
+        if (parent != kNoIndex) {
           any = true;
           break;
         }
