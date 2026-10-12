@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cstdint>
 #include <random>
+#include <stdexcept>
 
 using namespace ades;
 
@@ -72,7 +73,27 @@ static void compact_resident_state_and_shared_repair_scratch() {
   assert(state.repair_mark.empty()&&state.dist==dijkstra(g,0).dist);
 }
 
+static void frozen_csr_preserves_graph_semantics() {
+  Graph g(7);
+  const auto e01=g.add_edge(0,1,3);g.add_edge(0,2,2);g.add_edge(2,1,1);g.add_edge(1,3,4);g.add_edge(2,4,7);g.add_edge(4,5,1);g.add_edge(3,6,2);g.add_edge(5,6,1);
+  const auto before=dijkstra(g,0).dist;
+  std::vector<Arc> out0(g.out(0).begin(),g.out(0).end());
+  std::vector<Arc> in1(g.in(1).begin(),g.in(1).end());
+  g.freeze_topology();
+  assert(g.topology_frozen());
+  assert(std::vector<Arc>(g.out(0).begin(),g.out(0).end()).size()==out0.size());
+  assert(std::vector<Arc>(g.in(1).begin(),g.in(1).end()).size()==in1.size());
+  for(std::size_t i=0;i<out0.size();++i){assert(g.out(0)[i].to==out0[i].to);assert(g.out(0)[i].edge_id==out0[i].edge_id);}
+  for(std::size_t i=0;i<in1.size();++i){assert(g.in(1)[i].to==in1[i].to);assert(g.in(1)[i].edge_id==in1[i].edge_id);}
+  assert(dijkstra(g,0).dist==before);
+  assert(bidirectional_dijkstra(g,0,6)==before[6]);
+  g.update_weight(e01,30);
+  assert(dijkstra(g,0).dist[6]==bidirectional_dijkstra(g,0,6));
+  bool rejected=false;try{g.add_edge(6,0,1);}catch(const std::logic_error&){rejected=true;}assert(rejected);
+}
+
 int main(){
   tight_nonparent_increase_is_read_only();parallel_tight_nonparent_increase_is_filtered();zero_weight_equal_witness_is_filtered();
   randomized_tight_nonparent_filter_differential();reusable_bidirectional_workspace_differential();compact_resident_state_and_shared_repair_scratch();
+  frozen_csr_preserves_graph_semantics();
 }
