@@ -1,0 +1,60 @@
+name: ADES PR56 predictive repair preflight
+
+on:
+  pull_request:
+    paths:
+      - 'include/ades/repair_controller.hpp'
+      - 'src/dynamic_repair.cpp'
+      - 'tests/pr56_repair_preflight.cpp'
+      - 'tools/run_pr56_repair_preflight.py'
+      - 'CMakeLists.txt'
+      - '.github/workflows/pr56-repair-preflight.yml'
+  push:
+    branches:
+      - pr56-predictive-repair-preflight
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-measure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+        with:
+          path: candidate
+      - name: Checkout frozen PR55 baseline
+        uses: actions/checkout@v4
+        with:
+          ref: pr55-radix-heap-ablation
+          path: baseline
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Build and test candidate
+        run: |
+          cmake -S candidate -B candidate/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build candidate/build -j2
+          ctest --test-dir candidate/build --output-on-failure
+      - name: Build frozen baseline controller runner
+        run: |
+          cmake -S baseline -B baseline/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build baseline/build -j2 --target ades_controller_workload
+      - name: Verify NY corpus identity
+        run: bash candidate/tools/verify_ny_dimacs.sh candidate/benchmarks/data
+      - name: Run matched repair-controller benchmark
+        run: |
+          python3 candidate/tools/run_pr56_repair_preflight.py \
+            --baseline baseline/build/ades_controller_workload \
+            --candidate candidate/build/ades_controller_workload \
+            --graph candidate/benchmarks/data/USA-road-d.NY.gr.gz \
+            --out candidate/results/pr56-repair-preflight \
+            --rounds 40
+      - name: Upload development evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr56-repair-preflight-${{ github.sha }}
+          path: candidate/results/pr56-repair-preflight/
+          if-no-files-found: error
+          retention-days: 90
