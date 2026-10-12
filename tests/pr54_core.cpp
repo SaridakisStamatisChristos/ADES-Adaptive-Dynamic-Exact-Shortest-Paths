@@ -1,4 +1,5 @@
 #include "ades/dynamic_repair.hpp"
+#include "ades/memory_budget.hpp"
 #include "ades/shortest_paths.hpp"
 
 #include <cassert>
@@ -122,10 +123,27 @@ static void reusable_bidirectional_workspace_differential() {
   }
 }
 
+static void repair_membership_is_shared_scratch_not_resident_state() {
+  Graph g(8);
+  const auto cut = g.add_edge(0, 1, 1);
+  for (std::uint32_t v = 1; v < 7; ++v) g.add_edge(v, v + 1, 1);
+  g.add_edge(0, 7, 40);
+  auto state = dijkstra(g, 0);
+  assert(state.repair_mark.empty());
+  assert(sssp_state_accounted_bytes(state) == sssp_state_accounted_bytes_for_vertices(g.vertex_count()));
+  assert(kPersistentStateAccountingVersion == 2);
+  const auto old = g.edge(cut);
+  g.update_weight(cut, 10);
+  assert(repair_increase(g, state, cut, old, {100, 100}) == RepairResult::Repaired);
+  assert(state.repair_mark.empty());
+  assert(state.dist == dijkstra(g, 0).dist);
+}
+
 int main() {
   tight_nonparent_increase_is_read_only();
   parallel_tight_nonparent_increase_is_filtered();
   zero_weight_equal_witness_is_filtered();
   randomized_tight_nonparent_filter_differential();
   reusable_bidirectional_workspace_differential();
+  repair_membership_is_shared_scratch_not_resident_state();
 }
