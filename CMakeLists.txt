@@ -35,6 +35,10 @@ add_executable(ades_workload_v2_tests tests/workload_v2.cpp)
 target_link_libraries(ades_workload_v2_tests PRIVATE ades)
 add_test(NAME ades_workload_v2_tests COMMAND ades_workload_v2_tests)
 
+add_executable(ades_pr54_core_tests tests/pr54_core.cpp)
+target_link_libraries(ades_pr54_core_tests PRIVATE ades)
+add_test(NAME ades_pr54_core_tests COMMAND ades_pr54_core_tests)
+
 add_executable(ades_bench benchmarks/runner.cpp)
 target_link_libraries(ades_bench PRIVATE ades)
 
