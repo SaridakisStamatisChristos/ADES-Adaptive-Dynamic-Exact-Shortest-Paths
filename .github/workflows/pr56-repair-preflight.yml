@@ -41,8 +41,8 @@ jobs:
         run: |
           cmake -S baseline -B baseline/build -DCMAKE_BUILD_TYPE=Release
           cmake --build baseline/build -j2 --target ades_controller_workload
-      - name: Verify NY corpus identity
-        run: bash candidate/tools/verify_ny_dimacs.sh candidate/benchmarks/data
+      - name: Fetch and verify NY corpus identity
+        run: bash candidate/tools/fetch_ny_dimacs.sh candidate/benchmarks/data candidate/benchmarks/data/NY.sha256
       - name: Run matched repair-controller benchmark
         run: |
           python3 candidate/tools/run_pr56_repair_preflight.py \
