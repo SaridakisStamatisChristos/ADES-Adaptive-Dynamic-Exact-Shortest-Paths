@@ -21,8 +21,8 @@ namespace ades {
 // independently by benchmark harnesses.
 //
 // v2: PR54 moves increase-repair membership marks out of every resident SSSP
-// into one reusable thread-local scratch workspace. The compatibility field in
-// SSSPState is empty in newly built states and therefore contributes zero bytes.
+// into one reusable thread-local scratch workspace and stores the four semantic
+// parent/tree identifiers as uint32_t, matching the graph's ID domain.
 inline constexpr std::uint32_t kPersistentStateAccountingVersion = 2;
 
 inline std::uint64_t accounted_add(std::uint64_t a, std::uint64_t b) {
@@ -60,7 +60,7 @@ inline std::uint64_t sssp_state_accounted_bytes(const SSSPState& state) {
 
 inline std::uint64_t sssp_state_accounted_bytes_for_vertices(std::size_t n) {
   constexpr std::uint64_t per_vertex =
-      sizeof(Distance) + 4u * sizeof(std::int64_t);
+      sizeof(Distance) + 4u * sizeof(std::uint32_t);
   return accounted_add(2u * sizeof(std::uint32_t),
                        accounted_mul(static_cast<std::uint64_t>(n), per_vertex));
 }
