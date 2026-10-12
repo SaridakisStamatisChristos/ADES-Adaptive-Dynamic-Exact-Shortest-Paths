@@ -14,7 +14,11 @@ static void tight_nonparent_increase_is_read_only() {
   const auto changed = g.add_edge(2, 3, 1);
   auto state = dijkstra(g, 0);
   assert(state.dist[3] == 2 && state.parent_edge[3] != changed);
-  const auto before_dist=state.dist,before_parent=state.parent_edge,before_first=state.first_child,before_next=state.next_sibling,before_prev=state.prev_sibling;
+  const auto before_dist=state.dist;
+  const auto before_parent=state.parent_edge;
+  const auto before_first=state.first_child;
+  const auto before_next=state.next_sibling;
+  const auto before_prev=state.prev_sibling;
   const auto old=g.edge(changed); g.update_weight(changed,100);
   RepairWork work{}; std::size_t discovered=99;
   assert(repair_increase(g,state,changed,old,{1,1},&discovered,&work)==RepairResult::Filtered);
