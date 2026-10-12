@@ -8,6 +8,10 @@ struct RepairBudget {
  std::size_t max_discovery_vertices=4096;
  std::size_t max_discovery_tree_edges=16384;
  std::uint64_t max_total_work=std::numeric_limits<std::uint64_t>::max();
+ // Forecast mode keeps discovery read-only up to the hard safety ceiling, then
+ // compares a structural estimate of the remaining local repair against the
+ // controller's time-derived work budget before semantic mutation begins.
+ bool preflight_forecast=false;
 };
 struct RepairWork {
  std::uint64_t discovered_vertices=0,tree_edges=0,boundary_scans=0,restricted_scans=0,pq_pops=0;
