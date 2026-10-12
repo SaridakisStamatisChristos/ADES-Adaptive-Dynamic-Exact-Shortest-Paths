@@ -1,10 +1,12 @@
 #include "ades/graph.hpp"
 #include <cstdio>
+#include <limits>
 #include <stdexcept>
 #include <zlib.h>
 namespace ades {
 std::uint32_t Graph::add_edge(std::uint32_t u,std::uint32_t v,Weight w){
  if(u>=vertex_count()||v>=vertex_count()) throw std::out_of_range("vertex");
+ if(edges_.size()>=std::numeric_limits<std::uint32_t>::max())throw std::overflow_error("32-bit edge id space exhausted");
  auto id=static_cast<std::uint32_t>(edges_.size()); edges_.push_back({u,v,w});
  out_[u].push_back({v,id}); in_[v].push_back({u,id}); return id;
 }
