@@ -16,10 +16,14 @@ namespace ades {
 // The budget is intentionally a logical algorithm-state budget, not RSS.
 // It includes semantic persistent state that differs between algorithms and
 // scales with residency/admission decisions. It excludes the common graph,
-// allocator/container implementation overhead, temporary workspaces and
-// telemetry/configuration. Peak RSS is recorded independently by benchmark
-// harnesses.
-inline constexpr std::uint32_t kPersistentStateAccountingVersion = 1;
+// allocator/container implementation overhead, reusable non-semantic scratch
+// workspaces, temporaries, and telemetry/configuration. Peak RSS is recorded
+// independently by benchmark harnesses.
+//
+// v2: PR54 moves increase-repair membership marks out of every resident SSSP
+// into one reusable thread-local scratch workspace. The compatibility field in
+// SSSPState is empty in newly built states and therefore contributes zero bytes.
+inline constexpr std::uint32_t kPersistentStateAccountingVersion = 2;
 
 inline std::uint64_t accounted_add(std::uint64_t a, std::uint64_t b) {
   if (b > std::numeric_limits<std::uint64_t>::max() - a)
@@ -38,7 +42,9 @@ inline std::uint64_t logical_vector_bytes(const std::vector<T>& values) {
   return accounted_mul(static_cast<std::uint64_t>(values.size()), sizeof(T));
 }
 
-// SSSPState has two persistent scalar fields plus six logical vectors.
+// SSSPState has two persistent scalar fields plus five semantic logical vectors.
+// `repair_mark` remains in the structure for source compatibility but newly
+// constructed states keep it empty; actual repair membership is reusable scratch.
 // Vector control blocks and allocator slack are deliberately excluded from the
 // logical model; their physical effect remains visible in peak RSS.
 inline std::uint64_t sssp_state_accounted_bytes(const SSSPState& state) {
@@ -54,7 +60,7 @@ inline std::uint64_t sssp_state_accounted_bytes(const SSSPState& state) {
 
 inline std::uint64_t sssp_state_accounted_bytes_for_vertices(std::size_t n) {
   constexpr std::uint64_t per_vertex =
-      sizeof(Distance) + 4u * sizeof(std::int64_t) + sizeof(std::uint32_t);
+      sizeof(Distance) + 4u * sizeof(std::int64_t);
   return accounted_add(2u * sizeof(std::uint32_t),
                        accounted_mul(static_cast<std::uint64_t>(n), per_vertex));
 }
