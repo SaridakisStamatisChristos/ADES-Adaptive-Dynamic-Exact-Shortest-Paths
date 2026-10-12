@@ -26,24 +26,24 @@ thread_local BidirectionalWorkspace bidirectional_workspace;
 inline void heap_push(std::vector<P>&q,P value){q.push_back(value);std::push_heap(q.begin(),q.end(),std::greater<P>{});}
 inline P heap_pop(std::vector<P>&q){std::pop_heap(q.begin(),q.end(),std::greater<P>{});auto value=q.back();q.pop_back();return value;}
 }
-void set_parent(const Graph& g,SSSPState& s,std::uint32_t v,std::int64_t edge_id){
+void set_parent(const Graph& g,SSSPState& s,std::uint32_t v,std::uint32_t edge_id){
  auto old=s.parent_edge[v];if(old==edge_id)return;
- if(old>=0){
-  auto p=g.edge((std::uint32_t)old).from;auto prev=s.prev_sibling[v],next=s.next_sibling[v];
-  if(prev>=0)s.next_sibling[(std::uint32_t)prev]=next;else s.first_child[p]=next;
-  if(next>=0)s.prev_sibling[(std::uint32_t)next]=prev;
+ if(old!=kNoIndex){
+  auto p=g.edge(old).from;auto prev=s.prev_sibling[v],next=s.next_sibling[v];
+  if(prev!=kNoIndex)s.next_sibling[prev]=next;else s.first_child[p]=next;
+  if(next!=kNoIndex)s.prev_sibling[next]=prev;
  }
- s.parent_edge[v]=edge_id;s.prev_sibling[v]=-1;s.next_sibling[v]=-1;
- if(edge_id>=0){
-  auto p=g.edge((std::uint32_t)edge_id).from;auto first=s.first_child[p];s.next_sibling[v]=first;
-  if(first>=0)s.prev_sibling[(std::uint32_t)first]=v;
+ s.parent_edge[v]=edge_id;s.prev_sibling[v]=kNoIndex;s.next_sibling[v]=kNoIndex;
+ if(edge_id!=kNoIndex){
+  auto p=g.edge(edge_id).from;auto first=s.first_child[p];s.next_sibling[v]=first;
+  if(first!=kNoIndex)s.prev_sibling[first]=v;
   s.first_child[p]=v;
  }
 }
 SSSPState dijkstra(const Graph& g,std::uint32_t s){
  const auto n=g.vertex_count();
- SSSPState r{s,std::vector<Distance>(n,INF),std::vector<std::int64_t>(n,-1),
-  std::vector<std::int64_t>(n,-1),std::vector<std::int64_t>(n,-1),std::vector<std::int64_t>(n,-1),
+ SSSPState r{s,std::vector<Distance>(n,INF),std::vector<std::uint32_t>(n,kNoIndex),
+  std::vector<std::uint32_t>(n,kNoIndex),std::vector<std::uint32_t>(n,kNoIndex),std::vector<std::uint32_t>(n,kNoIndex),
   {},0};
  std::priority_queue<P,std::vector<P>,std::greater<P>> q;
  r.dist[s]=0;q.push({0,s});
