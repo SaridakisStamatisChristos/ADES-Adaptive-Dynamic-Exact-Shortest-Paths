@@ -1,8 +1,7 @@
 #include "ades/dynamic_repair.hpp"
+#include "ades/radix_queue.hpp"
 #include <algorithm>
-#include <functional>
 #include <limits>
-#include <queue>
 namespace ades {
 namespace {
 struct RepairMembershipScratch {
@@ -17,13 +16,12 @@ struct RepairMembershipScratch {
 };
 thread_local RepairMembershipScratch repair_membership_scratch;
 }
-using Q=std::priority_queue<std::pair<Distance,std::uint32_t>,std::vector<std::pair<Distance,std::uint32_t>>,std::greater<std::pair<Distance,std::uint32_t>>>;
 RepairResult repair_decrease(const Graph& g,SSSPState& s,std::uint32_t id){
  const auto&e=g.edge(id);if(s.dist[e.from]>=INF)return RepairResult::Filtered;
  auto cand=sat_add(s.dist[e.from],e.weight);if(cand>=s.dist[e.to])return RepairResult::Filtered;
- Q q;s.dist[e.to]=cand;set_parent(g,s,e.to,id);q.push({cand,e.to});
- while(!q.empty()){auto[du,u]=q.top();q.pop();if(du!=s.dist[u])continue;
-  for(auto a:g.out(u)){auto nd=sat_add(du,g.edge(a.edge_id).weight);if(nd<s.dist[a.to]){s.dist[a.to]=nd;set_parent(g,s,a.to,a.edge_id);q.push({nd,a.to});}}
+ RadixQueue q;s.dist[e.to]=cand;set_parent(g,s,e.to,id);q.push(cand,e.to);
+ while(!q.empty()){auto[du,u]=q.pop();if(du!=s.dist[u])continue;
+  for(auto a:g.out(u)){auto nd=sat_add(du,g.edge(a.edge_id).weight);if(nd<s.dist[a.to]){s.dist[a.to]=nd;set_parent(g,s,a.to,a.edge_id);q.push(nd,a.to);}}
  }return RepairResult::Repaired;
 }
 RepairResult repair_increase(const Graph& g,SSSPState& s,std::uint32_t id,const Edge& old,RepairBudget budget,std::size_t* discovered_vertices,RepairWork* work){
@@ -51,7 +49,7 @@ RepairResult repair_increase(const Graph& g,SSSPState& s,std::uint32_t id,const 
   }
  }
  for(auto v:nodes){s.dist[v]=INF;set_parent(g,s,v,kNoIndex);}
- Q q;
+ RadixQueue q;
  for(auto v:nodes){
   for(auto a:g.in(v)){
    if(work){work->boundary_scans++;if(work->total()>budget.max_total_work)return RepairResult::RebuildRequired;}
@@ -61,14 +59,14 @@ RepairResult repair_increase(const Graph& g,SSSPState& s,std::uint32_t id,const 
    }
   }
  }
- for(auto v:nodes)if(s.dist[v]<INF)q.push({s.dist[v],v});
+ for(auto v:nodes)if(s.dist[v]<INF)q.push(s.dist[v],v);
  while(!q.empty()){
-  auto[du,u]=q.top();q.pop();if(work){work->pq_pops++;if(work->total()>budget.max_total_work)return RepairResult::RebuildRequired;}if(du!=s.dist[u])continue;
+  auto[du,u]=q.pop();if(work){work->pq_pops++;if(work->total()>budget.max_total_work)return RepairResult::RebuildRequired;}if(du!=s.dist[u])continue;
   for(auto a:g.out(u)){
    if(work){work->restricted_scans++;if(work->total()>budget.max_total_work)return RepairResult::RebuildRequired;}
    if(mark[a.to]==epoch){
     auto nd=sat_add(du,g.edge(a.edge_id).weight);
-    if(nd<s.dist[a.to]){s.dist[a.to]=nd;set_parent(g,s,a.to,a.edge_id);q.push({nd,a.to});}
+    if(nd<s.dist[a.to]){s.dist[a.to]=nd;set_parent(g,s,a.to,a.edge_id);q.push(nd,a.to);}
    }
   }
  }
