@@ -16,7 +16,11 @@ RepairResult repair_decrease(const Graph& g,SSSPState& s,std::uint32_t id){
 RepairResult repair_increase(const Graph& g,SSSPState& s,std::uint32_t id,const Edge& old,RepairBudget budget,std::size_t* discovered_vertices,RepairWork* work){
  if(discovered_vertices)*discovered_vertices=0;if(work)*work={};
  if(s.dist[old.from]>=INF||sat_add(s.dist[old.from],old.weight)!=s.dist[old.to])return RepairResult::Filtered;
- if(s.parent_edge[old.to]!=(std::int64_t)id)return RepairResult::RebuildRequired;
+ // A tight edge that is not the selected parent occurs nowhere in the selected
+ // shortest-path tree. Every resident vertex therefore retains its selected
+ // shortest-path witness after this edge increases. Distances cannot decrease
+ // on an increase, so no semantic shortest-path state is invalidated.
+ if(s.parent_edge[old.to]!=(std::int64_t)id)return RepairResult::Filtered;
  if(s.repair_mark.size()!=g.vertex_count())s.repair_mark.assign(g.vertex_count(),0);
  if(s.repair_epoch==std::numeric_limits<std::uint32_t>::max()){std::fill(s.repair_mark.begin(),s.repair_mark.end(),0);s.repair_epoch=1;}else ++s.repair_epoch;
  const auto epoch=s.repair_epoch;std::vector<std::uint32_t> stack{old.to},nodes;std::size_t tree_work=0;
