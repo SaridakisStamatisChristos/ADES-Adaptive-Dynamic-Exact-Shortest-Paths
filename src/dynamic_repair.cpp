@@ -33,7 +33,7 @@ RepairResult repair_increase(const Graph& g,SSSPState& s,std::uint32_t id,const 
  // shortest-path tree. Every resident vertex therefore retains its selected
  // shortest-path witness after this edge increases. Distances cannot decrease
  // on an increase, so no semantic shortest-path state is invalidated.
- if(s.parent_edge[old.to]!=(std::int64_t)id)return RepairResult::Filtered;
+ if(s.parent_edge[old.to]!=id)return RepairResult::Filtered;
  // Membership marks are reusable implementation scratch, not resident semantic
  // state. Keep repair_epoch as a diagnostic lifecycle counter while the actual
  // membership epoch lives in one thread-local workspace shared across repairs.
@@ -44,13 +44,13 @@ RepairResult repair_increase(const Graph& g,SSSPState& s,std::uint32_t id,const 
   auto u=stack.back();stack.pop_back();if(mark[u]==epoch)continue;mark[u]=epoch;nodes.push_back(u);
   if(discovered_vertices)*discovered_vertices=nodes.size();if(work)work->discovered_vertices=nodes.size();
   if(nodes.size()>budget.max_discovery_vertices|| (work&&work->total()>budget.max_total_work))return RepairResult::RebuildRequired;
-  for(auto child=s.first_child[u];child>=0;child=s.next_sibling[(std::uint32_t)child]){
+  for(auto child=s.first_child[u];child!=kNoIndex;child=s.next_sibling[child]){
    ++tree_work;if(work)work->tree_edges++;
    if(tree_work>budget.max_discovery_tree_edges|| (work&&work->total()>budget.max_total_work))return RepairResult::RebuildRequired;
-   stack.push_back((std::uint32_t)child);
+   stack.push_back(child);
   }
  }
- for(auto v:nodes){s.dist[v]=INF;set_parent(g,s,v,-1);}
+ for(auto v:nodes){s.dist[v]=INF;set_parent(g,s,v,kNoIndex);}
  Q q;
  for(auto v:nodes){
   for(auto a:g.in(v)){
