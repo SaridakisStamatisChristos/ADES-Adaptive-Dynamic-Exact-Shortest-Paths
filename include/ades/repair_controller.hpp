@@ -21,13 +21,18 @@ public:
   if(work.discovered_vertices)ewma(repair_ns_per_vertex_,double(ns)/double(work.discovered_vertices),alpha_);
   if(work.discovered_vertices){ewma(work_per_vertex_,double(units)/double(work.discovered_vertices),alpha_);ewma(tree_edges_per_vertex_,double(work.tree_edges)/double(work.discovered_vertices),alpha_);}
  }
+ // Work-aware PR56 policy: discovery is bounded only by hard safety ceilings.
+ // The economic decision is made after discovery from the actual affected-region
+ // degree geometry. This removes the refuted proxy "large subtree => rebuild".
+ // Until repair cost is learned, allow the repair to complete so the controller
+ // can obtain an unbiased sample rather than forcing an arbitrary cold-start
+ // rebuild.
  Budget budget()const{
-  if(rebuild_ns_<=0.0||repair_ns_per_work_<=0.0)return {4096,16384,32768};
+  if(rebuild_ns_<=0.0||repair_ns_per_work_<=0.0)
+   return {hard_vertices_,hard_tree_edges_,std::numeric_limits<std::uint64_t>::max()};
   const double target_work=gamma_*rebuild_ns_/repair_ns_per_work_;
   auto wu=std::uint64_t(std::max(1.0,target_work));
-  auto v=std::size_t(std::max(1.0,target_work/std::max(1.0,work_per_vertex_)));v=std::min(v,hard_vertices_);
-  auto e=std::size_t(std::max(1.0,double(v)*std::max(1.0,tree_edges_per_vertex_)));
-  return {v,std::min(e,hard_tree_edges_),wu};
+  return {hard_vertices_,hard_tree_edges_,wu};
  }
  Budget vertex_only_budget()const{
   if(rebuild_ns_<=0.0||repair_ns_per_vertex_<=0.0)return {4096,hard_tree_edges_,std::numeric_limits<std::uint64_t>::max()};
