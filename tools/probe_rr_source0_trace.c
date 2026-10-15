@@ -11,8 +11,14 @@
 
 /*
  * NY-scale source-0 qualification harness for the pinned third-party RR code.
- * The external source is compiled unchanged.  This harness supplies only the
- * graph/trace adapter and an independent indexed-binary-heap Dijkstra oracle.
+ * The external source is compiled unchanged.
+ *
+ * ADES/DIMACS may contain parallel directed arcs.  The RR public removal API
+ * identifies an arc only by (tail,head), so the adapter uses the exact SSSP
+ * reduction of every parallel bundle to one arc with weight=min(bundle).
+ * When an original edge changes, the RR aggregate arc is updated iff that
+ * bundle minimum changes.  The independent oracle always keeps the full
+ * original multigraph, so any error in this reduction is exposed directly.
  */
 
 #define ORACLE_INF (UINT64_MAX / UINT64_C(4))
@@ -23,6 +29,17 @@ typedef struct {
     int w;
     int next;
 } edge_record;
+
+typedef struct {
+    uint32_t u;
+    uint32_t v;
+    int min_w;
+} group_record;
+
+typedef struct {
+    uint64_t key;
+    uint32_t edge_id;
+} sort_item;
 
 typedef enum { OP_QUERY = 1, OP_UPDATE = 2 } op_kind;
 
@@ -46,6 +63,10 @@ typedef struct {
     uint32_t m;
     edge_record *edges;
     int *first;
+    uint32_t *group_of_edge;
+    group_record *groups;
+    uint32_t group_count;
+    uint32_t parallel_extra_edges;
 } oracle_graph;
 
 typedef struct {
@@ -64,14 +85,16 @@ static void fail(const char *message) {
     exit(2);
 }
 
-static int compare_u64(const void *lhs, const void *rhs) {
-    const uint64_t a = *(const uint64_t *)lhs;
-    const uint64_t b = *(const uint64_t *)rhs;
-    return (a > b) - (a < b);
-}
-
 static uint64_t pair_key(uint32_t u, uint32_t v) {
     return ((uint64_t)u << 32) | (uint64_t)v;
+}
+
+static int compare_sort_item(const void *lhs, const void *rhs) {
+    const sort_item *a = (const sort_item *)lhs;
+    const sort_item *b = (const sort_item *)rhs;
+    if (a->key < b->key) return -1;
+    if (a->key > b->key) return 1;
+    return (a->edge_id > b->edge_id) - (a->edge_id < b->edge_id);
 }
 
 static int rr_distance(vertex *g, uint32_t node) {
@@ -195,9 +218,18 @@ static void compare_full_state(vertex *rr_graph, const oracle_graph *model,
     }
 }
 
-static edge_record *load_dimacs(const char *path, vertex **rr_graph_out,
-                                oracle_graph *model, int *parallel_out,
-                                int *edge_domain_ok_out) {
+static int recompute_group_min(const oracle_graph *model, uint32_t group_id) {
+    int min_w = INT_MAX;
+    for (uint32_t id = 0; id < model->m; ++id) {
+        if (model->group_of_edge[id] == group_id && model->edges[id].w < min_w)
+            min_w = model->edges[id].w;
+    }
+    if (min_w == INT_MAX) fail("empty parallel group");
+    return min_w;
+}
+
+static void load_dimacs(const char *path, vertex **rr_graph_out,
+                        oracle_graph *model, int *edge_domain_ok_out) {
     FILE *in = fopen(path, "r");
     if (!in) fail("cannot open DIMACS graph");
 
@@ -205,8 +237,7 @@ static edge_record *load_dimacs(const char *path, vertex **rr_graph_out,
     uint32_t n = 0, declared_m = 0, m = 0;
     edge_record *edges = NULL;
     int *first = NULL;
-    vertex *rr_graph = NULL;
-    uint64_t *keys = NULL;
+    sort_item *sorted = NULL;
     int edge_domain_ok = 1;
 
     while (fgets(line, sizeof(line), in)) {
@@ -217,49 +248,71 @@ static edge_record *load_dimacs(const char *path, vertex **rr_graph_out,
                 declared_m = mm;
                 if (n == 0 || n > (uint32_t)INT_MAX) fail("unsupported vertex count");
                 edges = (edge_record *)calloc((size_t)declared_m, sizeof(edge_record));
-                keys = (uint64_t *)malloc((size_t)declared_m * sizeof(uint64_t));
+                sorted = (sort_item *)malloc((size_t)declared_m * sizeof(sort_item));
                 first = (int *)malloc((size_t)n * sizeof(int));
-                rr_graph = g_create_graph((int)n);
-                if (!edges || !keys || !first || !rr_graph) fail("graph allocation failed");
+                if (!edges || !sorted || !first) fail("graph allocation failed");
                 for (uint32_t i = 0; i < n; ++i) first[i] = -1;
             }
         } else if (line[0] == 'a') {
             unsigned u1 = 0, v1 = 0;
             unsigned long long w64 = 0;
             if (sscanf(line, "a %u %u %llu", &u1, &v1, &w64) != 3) continue;
-            if (!rr_graph || m >= declared_m || u1 == 0 || v1 == 0 || u1 > n || v1 > n)
+            if (!edges || m >= declared_m || u1 == 0 || v1 == 0 || u1 > n || v1 > n)
                 fail("invalid DIMACS arc");
             if (w64 > (unsigned long long)(INT_MAX - 500)) edge_domain_ok = 0;
             const int w = w64 > INT_MAX ? INT_MAX : (int)w64;
             const uint32_t u = u1 - 1, v = v1 - 1;
             edges[m] = (edge_record){u, v, w, first[u]};
             first[u] = (int)m;
-            keys[m] = pair_key(u, v);
-            if (!g_insert_edge(rr_graph, (int)u, (int)v, w)) fail("g_insert_edge failed");
+            sorted[m] = (sort_item){pair_key(u, v), m};
             ++m;
         }
     }
     fclose(in);
-    if (!rr_graph || n == 0 || m != declared_m) fail("DIMACS count mismatch");
+    if (!edges || n == 0 || m != declared_m) fail("DIMACS count mismatch");
 
-    qsort(keys, m, sizeof(uint64_t), compare_u64);
-    int parallel = 0;
-    for (uint32_t i = 1; i < m; ++i) {
-        if (keys[i] == keys[i - 1]) {
-            parallel = 1;
-            break;
+    qsort(sorted, m, sizeof(sort_item), compare_sort_item);
+    uint32_t *group_of_edge = (uint32_t *)malloc((size_t)m * sizeof(uint32_t));
+    group_record *groups = (group_record *)calloc((size_t)m, sizeof(group_record));
+    if (!group_of_edge || !groups) fail("parallel-group allocation failed");
+
+    uint32_t group_count = 0, parallel_extra = 0;
+    for (uint32_t i = 0; i < m;) {
+        const uint64_t key = sorted[i].key;
+        const uint32_t start = i;
+        int min_w = INT_MAX;
+        while (i < m && sorted[i].key == key) {
+            const uint32_t edge_id = sorted[i].edge_id;
+            group_of_edge[edge_id] = group_count;
+            if (edges[edge_id].w < min_w) min_w = edges[edge_id].w;
+            ++i;
         }
+        const uint32_t width = i - start;
+        if (width > 1) parallel_extra += width - 1;
+        groups[group_count] = (group_record){
+            (uint32_t)(key >> 32), (uint32_t)key, min_w};
+        ++group_count;
     }
-    free(keys);
+    free(sorted);
+
+    vertex *rr_graph = g_create_graph((int)n);
+    if (!rr_graph) fail("g_create_graph failed");
+    for (uint32_t gid = 0; gid < group_count; ++gid) {
+        const group_record *group = &groups[gid];
+        if (!g_insert_edge(rr_graph, (int)group->u, (int)group->v, group->min_w))
+            fail("RR aggregate edge insertion failed");
+    }
 
     model->n = n;
     model->m = m;
     model->edges = edges;
     model->first = first;
+    model->group_of_edge = group_of_edge;
+    model->groups = groups;
+    model->group_count = group_count;
+    model->parallel_extra_edges = parallel_extra;
     *rr_graph_out = rr_graph;
-    *parallel_out = parallel;
     *edge_domain_ok_out = edge_domain_ok;
-    return edges;
 }
 
 static trace_op *read_trace(const char *path, uint32_t *count_out,
@@ -303,22 +356,25 @@ static trace_op *read_trace(const char *path, uint32_t *count_out,
 }
 
 static void write_report(const char *path, const char *graph_path,
-                         const oracle_graph *model, int parallel,
-                         int edge_domain_ok, int path_domain_ok,
-                         int source0_only, uint32_t op_count,
-                         uint32_t query_count, uint32_t update_count,
-                         uint32_t increase_count, uint32_t decrease_count,
-                         uint32_t completed_ops, const compare_result *cmp,
-                         int exact) {
+                         const oracle_graph *model, int edge_domain_ok,
+                         int path_domain_ok, int source0_only,
+                         uint32_t op_count, uint32_t query_count,
+                         uint32_t update_count, uint32_t increase_count,
+                         uint32_t decrease_count, uint32_t completed_ops,
+                         uint32_t aggregate_updates, uint32_t suppressed_updates,
+                         const compare_result *cmp, int exact) {
     FILE *out = fopen(path, "w");
     if (!out) fail("cannot write report");
     fprintf(out, "{\n");
-    fprintf(out, "  \"schema\": \"ades-rr-source0-ny-preflight-v2\",\n");
+    fprintf(out, "  \"schema\": \"ades-rr-source0-ny-preflight-v3\",\n");
     fprintf(out, "  \"rr_commit\": \"20aa865a52b67bd0ff402e2946e51541db0b5473\",\n");
     fprintf(out, "  \"graph\": \"%s\",\n", graph_path);
     fprintf(out, "  \"vertices\": %u,\n", model->n);
-    fprintf(out, "  \"edges\": %u,\n", model->m);
-    fprintf(out, "  \"parallel_arc_ambiguity\": %s,\n", parallel ? "true" : "false");
+    fprintf(out, "  \"original_edges\": %u,\n", model->m);
+    fprintf(out, "  \"rr_aggregate_edges\": %u,\n", model->group_count);
+    fprintf(out, "  \"parallel_extra_edges\": %u,\n", model->parallel_extra_edges);
+    fprintf(out, "  \"parallel_edges_present\": %s,\n", model->parallel_extra_edges ? "true" : "false");
+    fprintf(out, "  \"parallel_min_collapse_adapter\": true,\n");
     fprintf(out, "  \"edge_int_domain_compatible\": %s,\n", edge_domain_ok ? "true" : "false");
     fprintf(out, "  \"path_int_domain_compatible\": %s,\n", path_domain_ok ? "true" : "false");
     fprintf(out, "  \"source0_only\": %s,\n", source0_only ? "true" : "false");
@@ -327,14 +383,16 @@ static void write_report(const char *path, const char *graph_path,
     fprintf(out, "  \"update_count\": %u,\n", update_count);
     fprintf(out, "  \"increase_count\": %u,\n", increase_count);
     fprintf(out, "  \"decrease_count\": %u,\n", decrease_count);
+    fprintf(out, "  \"aggregate_rr_updates\": %u,\n", aggregate_updates);
+    fprintf(out, "  \"underlying_updates_suppressed\": %u,\n", suppressed_updates);
     fprintf(out, "  \"completed_operations\": %u,\n", completed_ops);
     fprintf(out, "  \"full_state_checks\": %u,\n", cmp->full_state_checks);
     fprintf(out, "  \"vertex_distance_comparisons\": %" PRIu64 ",\n", cmp->comparison_count);
     fprintf(out, "  \"mismatch_count\": %" PRIu64 ",\n", cmp->mismatch_count);
     fprintf(out, "  \"exact_full_state\": %s,\n", exact ? "true" : "false");
     fprintf(out, "  \"heap_capacity\": %d,\n", HEAP_SIZE);
-    fprintf(out, "  \"oracle\": \"independent indexed-binary-heap Dijkstra in ADES harness\",\n");
-    fprintf(out, "  \"weight_change_adapter\": \"rr_remove_edge then rr_add_edge\"");
+    fprintf(out, "  \"oracle\": \"independent indexed-binary-heap Dijkstra on original multigraph\",\n");
+    fprintf(out, "  \"weight_change_adapter\": \"update original edge; recompute bundle minimum; rr_remove_edge+rr_add_edge only if minimum changes\"");
     if (cmp->first_bad_phase >= 0) {
         fprintf(out,
                 ",\n  \"first_mismatch\": {\"phase\": %d, \"node\": %u, \"rr\": %d, \"oracle\": %" PRIu64 "}",
@@ -352,9 +410,10 @@ int main(int argc, char **argv) {
     }
 
     vertex *rr_graph = NULL;
-    oracle_graph model = {0};
-    int parallel = 0, edge_domain_ok = 0;
-    load_dimacs(argv[1], &rr_graph, &model, &parallel, &edge_domain_ok);
+    oracle_graph model;
+    memset(&model, 0, sizeof(model));
+    int edge_domain_ok = 0;
+    load_dimacs(argv[1], &rr_graph, &model, &edge_domain_ok);
 
     uint32_t op_count = 0, query_count = 0, update_count = 0;
     uint32_t increase_count = 0, decrease_count = 0;
@@ -375,14 +434,16 @@ int main(int argc, char **argv) {
     cmp.first_bad_phase = -1;
     cmp.path_domain_ok = 1;
 
-    if (parallel || !edge_domain_ok || !source0_only) {
-        write_report(argv[3], argv[1], &model, parallel, edge_domain_ok,
+    if (!edge_domain_ok || !source0_only) {
+        write_report(argv[3], argv[1], &model, edge_domain_ok,
                      cmp.path_domain_ok, source0_only, op_count, query_count,
-                     update_count, increase_count, decrease_count, 0, &cmp, 0);
-        fprintf(stderr,
-                "[rr-ny] adapter precondition failure parallel=%d edge_domain=%d source0=%d\n",
-                parallel, edge_domain_ok, source0_only);
+                     update_count, increase_count, decrease_count, 0, 0, 0,
+                     &cmp, 0);
+        fprintf(stderr, "[rr-ny] adapter precondition failure edge_domain=%d source0=%d\n",
+                edge_domain_ok, source0_only);
         free(ops);
+        free(model.groups);
+        free(model.group_of_edge);
         free(model.first);
         free(model.edges);
         g_free_graph(&rr_graph, (int)model.n);
@@ -404,16 +465,27 @@ int main(int argc, char **argv) {
     compare_full_state(rr_graph, &model, oracle_dist, oracle_heap_nodes,
                        oracle_positions, &cmp, -1);
 
-    uint32_t completed = 0;
+    uint32_t completed = 0, aggregate_updates = 0, suppressed_updates = 0;
     int phase = 0;
     for (uint32_t i = 0; i < op_count; ++i) {
         trace_op *op = &ops[i];
         if (op->kind == OP_UPDATE) {
-            edge_record *e = &model.edges[op->a];
-            if ((uint64_t)e->w != op->old_weight) fail("trace old weight differs from model state");
-            rr_remove_edge(rr_graph, (int)e->u, (int)e->v, q);
-            rr_add_edge(rr_graph, (int)e->u, (int)e->v, (int)op->new_weight, q);
-            e->w = (int)op->new_weight;
+            edge_record *edge = &model.edges[op->a];
+            if ((uint64_t)edge->w != op->old_weight)
+                fail("trace old weight differs from original-edge state");
+            const uint32_t gid = model.group_of_edge[op->a];
+            group_record *group = &model.groups[gid];
+            const int old_min = group->min_w;
+            edge->w = (int)op->new_weight;
+            const int new_min = recompute_group_min(&model, gid);
+            if (new_min != old_min) {
+                rr_remove_edge(rr_graph, (int)group->u, (int)group->v, q);
+                rr_add_edge(rr_graph, (int)group->u, (int)group->v, new_min, q);
+                group->min_w = new_min;
+                ++aggregate_updates;
+            } else {
+                ++suppressed_updates;
+            }
             compare_full_state(rr_graph, &model, oracle_dist, oracle_heap_nodes,
                                oracle_positions, &cmp, phase++);
         } else {
@@ -440,13 +512,14 @@ int main(int argc, char **argv) {
     }
 
     const int exact = cmp.mismatch_count == 0 && cmp.path_domain_ok;
-    write_report(argv[3], argv[1], &model, parallel, edge_domain_ok,
+    write_report(argv[3], argv[1], &model, edge_domain_ok,
                  cmp.path_domain_ok, source0_only, op_count, query_count,
                  update_count, increase_count, decrease_count, completed,
-                 &cmp, exact);
+                 aggregate_updates, suppressed_updates, &cmp, exact);
     fprintf(stderr,
-            "[rr-ny] vertices=%u edges=%u ops=%u updates=%u full_checks=%u comparisons=%" PRIu64 " mismatches=%" PRIu64 " exact=%d heap_capacity=%d\n",
-            model.n, model.m, op_count, update_count, cmp.full_state_checks,
+            "[rr-ny] vertices=%u original_edges=%u aggregate_edges=%u parallel_extra=%u ops=%u updates=%u aggregate_updates=%u full_checks=%u comparisons=%" PRIu64 " mismatches=%" PRIu64 " exact=%d heap_capacity=%d\n",
+            model.n, model.m, model.group_count, model.parallel_extra_edges,
+            op_count, update_count, aggregate_updates, cmp.full_state_checks,
             cmp.comparison_count, cmp.mismatch_count, exact, HEAP_SIZE);
 
     free_queue(q);
@@ -455,6 +528,8 @@ int main(int argc, char **argv) {
     free(oracle_heap_nodes);
     free(oracle_dist);
     free(ops);
+    free(model.groups);
+    free(model.group_of_edge);
     free(model.first);
     free(model.edges);
     return 0;
