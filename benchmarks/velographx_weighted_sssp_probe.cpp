@@ -131,7 +131,9 @@ static bool random_case() {
   std::mt19937_64 rng(0xC0FFEEULL);
   for (int step=1; step<=200; ++step) {
     const std::size_t idx = static_cast<std::size_t>(rng()%m.size());
-    const auto u=m[idx].u, v=m[idx].v, w=static_cast<std::uint64_t>(rng()%31);
+    const VertexId u=m[idx].u;
+    const VertexId v=m[idx].v;
+    const std::uint64_t w=static_cast<std::uint64_t>(rng()%31);
     WeightedUpdateBatch b; b.update(u,v,w); s.apply(b); set_edge(m,u,v,w);
     if (!verify("random_mixed",step,g,s,0,m)) return false;
   }
