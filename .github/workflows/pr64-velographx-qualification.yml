@@ -45,6 +45,49 @@ jobs:
             --out harness/results/pr64-velographx \
             --timeout 15 \
             | tee harness/results/pr64-velographx.stdout.txt
+      - name: Verify exact PR59 NY graph representability
+        run: |
+          set -euo pipefail
+          echo '7b2446c7ffe6179efbc42af6812448e8cb782f12968ca2bb1d50d979343056d4  harness/benchmarks/data/USA-road-d.NY.gr.gz' | sha256sum --check --strict
+          echo 'de902573142dbf12c42b065d9a6a679e4794372eb91d2748ee78089720377156  harness/benchmarks/data/USA-road-t.NY.gr.gz' | sha256sum --check --strict
+          python3 - <<'PY'
+          import gzip, json, pathlib
+          files = [
+              ('USA-road-d.NY.gr.gz','7b2446c7ffe6179efbc42af6812448e8cb782f12968ca2bb1d50d979343056d4'),
+              ('USA-road-t.NY.gr.gz','de902573142dbf12c42b065d9a6a679e4794372eb91d2748ee78089720377156'),
+          ]
+          result = {'schema':'ades-pr64-velographx-ny-representability-v1','graphs':{}}
+          all_simple = True
+          for name, sha in files:
+              path = pathlib.Path('harness/benchmarks/data')/name
+              seen = {}
+              duplicates = []
+              arcs = 0
+              with gzip.open(path,'rt',encoding='ascii') as f:
+                  for line in f:
+                      if not line.startswith('a '):
+                          continue
+                      _, us, vs, ws = line.split()
+                      u, v, w = int(us), int(vs), int(ws)
+                      arcs += 1
+                      key = (u,v)
+                      if key in seen:
+                          duplicates.append({'u':u,'v':v,'first_weight':seen[key],'later_weight':w})
+                      else:
+                          seen[key] = w
+              simple = not duplicates
+              all_simple = all_simple and simple
+              result['graphs'][name] = {
+                  'sha256': sha, 'arc_count': arcs,
+                  'unique_endpoint_pairs': len(seen),
+                  'duplicate_endpoint_arc_count': len(duplicates),
+                  'simple_digraph_representable': simple,
+                  'first_duplicate_examples': duplicates[:10],
+              }
+          result['all_pr59_ny_graphs_simple_digraph_representable'] = all_simple
+          pathlib.Path('harness/results/pr64-velographx/ny-representability.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(result,indent=2,sort_keys=True))
+          PY
       - name: Record source identities
         env:
           HARNESS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
