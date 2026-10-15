@@ -3,7 +3,7 @@
 
 This wrapper deliberately reuses the frozen PR69 graph generator, update stream,
 execution contract, and fresh-Dijkstra oracle from
-run_pr69_graphbolt_qualification.py.  It changes only comparator provenance and
+run_pr69_graphbolt_qualification.py. It changes only comparator provenance and
 the qualification label so a portability-patched GraphBolt build can never be
 confused with pristine upstream.
 
@@ -12,10 +12,16 @@ No performance claim is made here.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 from pathlib import Path
 
-from tools import run_pr69_graphbolt_qualification as base
+_BASE_PATH = Path(__file__).with_name("run_pr69_graphbolt_qualification.py")
+_BASE_SPEC = importlib.util.spec_from_file_location("pr69_frozen_qualification", _BASE_PATH)
+if _BASE_SPEC is None or _BASE_SPEC.loader is None:
+    raise RuntimeError(f"cannot load frozen PR69 harness: {_BASE_PATH}")
+base = importlib.util.module_from_spec(_BASE_SPEC)
+_BASE_SPEC.loader.exec_module(base)
 
 PATCH_ID = "kickstarter-missing-return-v1"
 PATCH_SCOPE = (
