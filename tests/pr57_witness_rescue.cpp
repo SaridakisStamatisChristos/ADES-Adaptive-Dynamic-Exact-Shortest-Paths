@@ -8,7 +8,7 @@
 
 using namespace ades;
 
-static void strict_alternate_witness_avoids_subtree_discovery(){
+static void strict_alternate_witness_rescues_after_large_discovery_trigger(){
  Graph g(1024);
  g.add_edge(0,1,1);
  const auto changed=g.add_edge(0,2,2);
@@ -18,18 +18,35 @@ static void strict_alternate_witness_avoids_subtree_discovery(){
  assert(state.parent_edge[2]==changed);
  const auto before_dist=state.dist;
  const auto old=g.edge(changed);g.update_weight(changed,3);
- RepairWork work{};std::size_t discovered=999;
- const auto result=repair_increase(g,state,changed,old,{0,0,0},&discovered,&work);
+ RepairWork work{};std::size_t discovered=0;
+ const auto result=repair_increase(g,state,changed,old,{2000,2000,std::numeric_limits<std::uint64_t>::max()},&discovered,&work);
  assert(result==RepairResult::Repaired);
  assert(work.witness_rescues==1&&work.witness_scans>0);
- assert(discovered==0);
+ assert(discovered==256);
  assert(state.parent_edge[2]==alternate);
  assert(state.dist==before_dist);
  assert(state.dist==dijkstra(g,0).dist);
 }
 
-static void equal_distance_zero_weight_witness_rescues_after_read_only_discovery(){
- Graph g(128);
+static void small_repairs_do_not_pay_witness_probe(){
+ Graph g(64);
+ g.add_edge(0,1,1);
+ const auto changed=g.add_edge(0,2,2);
+ g.add_edge(1,2,1);
+ for(std::uint32_t v=2;v+1<g.vertex_count();++v)g.add_edge(v,v+1,1);
+ auto state=dijkstra(g,0);
+ assert(state.parent_edge[2]==changed);
+ const auto old=g.edge(changed);g.update_weight(changed,3);
+ RepairWork work{};std::size_t discovered=0;
+ const auto result=repair_increase(g,state,changed,old,{1000,1000,std::numeric_limits<std::uint64_t>::max()},&discovered,&work);
+ assert(result==RepairResult::Repaired);
+ assert(discovered==62);
+ assert(work.witness_scans==0&&work.witness_rescues==0);
+ assert(state.dist==dijkstra(g,0).dist);
+}
+
+static void equal_distance_zero_weight_witness_rescues_after_full_discovery(){
+ Graph g(512);
  g.add_edge(0,1,0);g.add_edge(0,2,0);
  const auto via1=g.add_edge(1,3,0);
  const auto via2=g.add_edge(2,3,0);
@@ -43,29 +60,29 @@ static void equal_distance_zero_weight_witness_rescues_after_read_only_discovery
  RepairWork work{};std::size_t discovered=0;
  const auto result=repair_increase(g,state,selected,old,{1000,1000,std::numeric_limits<std::uint64_t>::max()},&discovered,&work);
  assert(result==RepairResult::Repaired);
- assert(discovered>0);
- assert(work.witness_rescues==1);
+ assert(discovered==509);
+ assert(work.witness_scans>0&&work.witness_rescues==1);
  assert(state.parent_edge[3]==alternate);
  assert(state.dist==before_dist);
  assert(state.dist==dijkstra(g,0).dist);
 }
 
 static void equal_distance_descendant_is_not_a_safe_witness(){
- Graph g(4);
+ Graph g(512);
  const auto changed=g.add_edge(0,1,1);
  g.add_edge(1,2,0);
  g.add_edge(2,1,0);
- g.add_edge(2,3,1);
+ for(std::uint32_t v=2;v+1<g.vertex_count();++v)g.add_edge(v,v+1,1);
  auto state=dijkstra(g,0);
  assert(state.parent_edge[1]==changed);
  const auto old=g.edge(changed);g.update_weight(changed,2);
  RepairWork work{};std::size_t discovered=0;
- const auto result=repair_increase(g,state,changed,old,{100,100,std::numeric_limits<std::uint64_t>::max()},&discovered,&work);
+ const auto result=repair_increase(g,state,changed,old,{1000,1000,std::numeric_limits<std::uint64_t>::max()},&discovered,&work);
  assert(result==RepairResult::Repaired);
- assert(discovered>=2);
- assert(work.witness_rescues==0);
+ assert(discovered==511);
+ assert(work.witness_scans>0&&work.witness_rescues==0);
  assert(state.dist==dijkstra(g,0).dist);
- assert(state.dist[1]==2&&state.dist[2]==2&&state.dist[3]==3);
+ assert(state.dist[1]==2&&state.dist[2]==2);
 }
 
 static void randomized_selected_parent_increase_differential(){
@@ -84,6 +101,7 @@ static void randomized_selected_parent_increase_differential(){
     RepairWork work{};
     const auto result=repair_increase(changed,state,id,old,{1000000,1000000,std::numeric_limits<std::uint64_t>::max()},nullptr,&work);
     assert(result!=RepairResult::RebuildRequired);
+    assert(work.witness_scans==0);
     assert(state.dist==dijkstra(changed,source).dist);
     ++checked;
    }
@@ -92,8 +110,9 @@ static void randomized_selected_parent_increase_differential(){
 }
 
 int main(){
- strict_alternate_witness_avoids_subtree_discovery();
- equal_distance_zero_weight_witness_rescues_after_read_only_discovery();
+ strict_alternate_witness_rescues_after_large_discovery_trigger();
+ small_repairs_do_not_pay_witness_probe();
+ equal_distance_zero_weight_witness_rescues_after_full_discovery();
  equal_distance_descendant_is_not_a_safe_witness();
  randomized_selected_parent_increase_differential();
 }
