@@ -7,6 +7,7 @@ on:
     paths:
       - 'tools/oracle_from_trace.cpp'
       - 'tools/run_pr66_velographx_holdout.py'
+      - 'tools/run_pr66_velographx_holdout_v2.py'
       - '.github/workflows/pr66-velographx-fresh-holdout.yml'
 
 permissions:
@@ -80,11 +81,12 @@ jobs:
             -o velographx_direct
           python3 -m py_compile harness/tools/run_pr65_velographx_head_to_head.py
           python3 -m py_compile harness/tools/run_pr66_velographx_holdout.py
-      - name: Execute preregistered 24-cell dynamic-maintenance holdout
+          python3 -m py_compile harness/tools/run_pr66_velographx_holdout_v2.py
+      - name: Execute corrected preregistered 24-cell dynamic-maintenance holdout
         run: |
           set -euo pipefail
           mkdir -p harness/results/pr66-velographx-holdout
-          python3 harness/tools/run_pr66_velographx_holdout.py \
+          PYTHONPATH=harness/tools python3 harness/tools/run_pr66_velographx_holdout_v2.py \
             --candidate-root candidate \
             --workload-generator ./build/ades_workload_v2 \
             --oracle-builder ./oracle_from_trace \
@@ -108,7 +110,11 @@ jobs:
           assert len(hot)==12
           assert all(c['source_reuse_fraction'] >= 0.80 for c in hot)
           assert sum(c['velo_cache_hits'] for c in hot) > 0
-          print('SOURCE_REUSE_COVERAGE PASS hot_cells=12 hits=',sum(c['velo_cache_hits'] for c in hot))
+          rotating=[c for c in cells if c['family']=='rotating-hot-4']
+          assert len(rotating)==6
+          assert all(c['source_reuse_fraction'] >= 0.80 for c in rotating)
+          print('SOURCE_REUSE_COVERAGE PASS hot_hits=',sum(c['velo_cache_hits'] for c in hot),
+                'rotating_hits=',sum(c['velo_cache_hits'] for c in rotating))
           PY
       - name: Record environment and source identities
         env:
@@ -124,9 +130,11 @@ jobs:
             echo "velo_adapter_blob=$(git -C harness hash-object benchmarks/velographx_direct.cpp)"
             echo "pair_driver_blob=$(git -C harness hash-object tools/run_pr65_velographx_head_to_head.py)"
             echo "oracle_validation=ADES_fresh_Dijkstra_equals_Boost_Graph_1.92.0_Dijkstra_on_every_query"
+            echo "preflight_history=v1 locality_percent=0 falsified source-reuse assumption before accepted holdout; v2 uses fresh seeds 701,809,907 and locality_percent=100 for non-uniform families"
             echo "runner_os=${RUNNER_OS:-unknown}"
             echo "runner_arch=${RUNNER_ARCH:-unknown}"
             sha256sum harness/tools/run_pr66_velographx_holdout.py
+            sha256sum harness/tools/run_pr66_velographx_holdout_v2.py
             sha256sum harness/tools/oracle_from_trace.cpp
             sha256sum external/velographx/LICENSE
             sha256sum external/velographx/include/velographx/incremental/weighted_sssp.hpp
