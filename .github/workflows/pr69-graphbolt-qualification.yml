@@ -1,0 +1,212 @@
+name: ADES PR69 GraphBolt portability-patched qualification
+
+on:
+  push:
+    branches: [pr69-graphbolt-weighted-sssp-qualification]
+  pull_request:
+    paths:
+      - 'tools/run_pr69_graphbolt_qualification.py'
+      - 'tools/run_pr69_graphbolt_portability_qualification.py'
+      - '.github/workflows/pr69-graphbolt-qualification.yml'
+
+permissions:
+  contents: read
+
+env:
+  GRAPHBOLT_SHA: 7c2792cc77d59b9722288ded8c3c62f6a9a87fc7
+  MIMALLOC_SHA: 04f1c3b1e23677ce03bd16137e73089abd552175
+  PATCH_ID: kickstarter-missing-return-v1
+
+jobs:
+  qualify-portability-patched-graphbolt:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout qualification harnesses
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify frozen and patched harness syntax
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            tools/run_pr69_graphbolt_qualification.py \
+            tools/run_pr69_graphbolt_portability_qualification.py
+          mkdir -p evidence/pr69/provenance
+          sha256sum \
+            tools/run_pr69_graphbolt_qualification.py \
+            tools/run_pr69_graphbolt_portability_qualification.py \
+            > evidence/pr69/provenance/harness-sha256.txt
+
+      - name: Fetch exact upstream GraphBolt DZiG revision
+        run: |
+          set -euo pipefail
+          git clone https://github.com/pdclab/graphbolt.git external/graphbolt
+          git -C external/graphbolt checkout --detach "$GRAPHBOLT_SHA"
+          test "$(git -C external/graphbolt rev-parse HEAD)" = "$GRAPHBOLT_SHA"
+          test -z "$(git -C external/graphbolt status --porcelain)"
+          sha256sum \
+            external/graphbolt/apps/SSSP.C \
+            external/graphbolt/apps/SSSP_edgeData.h \
+            external/graphbolt/core/graphBolt/KickStarterEngine.h \
+            external/graphbolt/core/graphBolt/ingestor.h \
+            external/graphbolt/core/common/parallel.h \
+            > evidence/pr69/provenance/upstream-source-sha256.txt
+
+      - name: Build pinned upstream-required mimalloc v1.6.0
+        run: |
+          set -euo pipefail
+          git clone https://github.com/microsoft/mimalloc.git external/mimalloc
+          git -C external/mimalloc checkout --detach "$MIMALLOC_SHA"
+          test "$(git -C external/mimalloc rev-parse HEAD)" = "$MIMALLOC_SHA"
+          test -z "$(git -C external/mimalloc status --porcelain)"
+          cmake -S external/mimalloc -B external/mimalloc/out/release \
+            -DCMAKE_BUILD_TYPE=Release -DMI_BUILD_TESTS=OFF
+          cmake --build external/mimalloc/out/release --parallel 2
+          test -f external/mimalloc/out/release/libmimalloc.so
+          sha256sum external/mimalloc/out/release/libmimalloc.so \
+            > evidence/pr69/provenance/mimalloc-library-sha256.txt
+
+      - name: Apply exactly one documented portability repair
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('external/graphbolt/core/graphBolt/KickStarterEngine.h')
+          s = p.read_text()
+          signature = '  int traditionalIncrementalComputation() {\n    while (active_vertices_bitset.anyScheduledTasks()) {'
+          if s.count(signature) != 1:
+              raise SystemExit('unique KickStarter no-arg function signature not found')
+          marker = '      }\n    }\n  }\n\n  void deltaCompute(edgeArray &edge_additions, edgeArray &edge_deletions) {'
+          replacement = '      }\n    }\n    return 0;  // ADES PR69 portability repair: caller ignores return value.\n  }\n\n  void deltaCompute(edgeArray &edge_additions, edgeArray &edge_deletions) {'
+          start = s.index(signature)
+          head, tail = s[:start], s[start:]
+          if tail.count(marker) != 1:
+              raise SystemExit('unique KickStarter function terminator not found')
+          p.write_text(head + tail.replace(marker, replacement, 1))
+          PY
+          git -C external/graphbolt diff --check
+          git -C external/graphbolt diff -- core/graphBolt/KickStarterEngine.h \
+            | tee evidence/pr69/provenance/portability.patch
+          test "$(git -C external/graphbolt diff --numstat | awk '{print $1":"$2":"$3}')" \
+            = "1:0:core/graphBolt/KickStarterEngine.h"
+          grep -Fq 'return 0;  // ADES PR69 portability repair: caller ignores return value.' \
+            external/graphbolt/core/graphBolt/KickStarterEngine.h
+          sha256sum \
+            external/graphbolt/core/graphBolt/KickStarterEngine.h \
+            evidence/pr69/provenance/portability.patch \
+            > evidence/pr69/provenance/patched-source-and-patch-sha256.txt
+
+      - name: Build patched weighted SSSP through upstream OpenMP branch
+        run: |
+          set -euo pipefail
+          mkdir -p graphbolt-runtime
+          g++ -std=c++14 -O3 -g -DOPENMP -fopenmp -DEDGELONG -DEDGEDATA \
+            -include cstdint external/graphbolt/apps/SSSP.C -pthread \
+            -o graphbolt-runtime/graphbolt_sssp_patched
+          test -x graphbolt-runtime/graphbolt_sssp_patched
+          ldd graphbolt-runtime/graphbolt_sssp_patched \
+            | tee evidence/pr69/provenance/graphbolt-ldd.txt
+          g++ --version | head -1 \
+            | tee evidence/pr69/provenance/graphbolt-compiler.txt
+          sha256sum graphbolt-runtime/graphbolt_sssp_patched \
+            > evidence/pr69/provenance/binary-sha256.txt
+
+      - name: Canonical exact qualification replication OMP1
+        env:
+          OMP_NUM_THREADS: '1'
+          LD_PRELOAD: ${{ github.workspace }}/external/mimalloc/out/release/libmimalloc.so
+        run: |
+          set -euo pipefail
+          python3 tools/run_pr69_graphbolt_portability_qualification.py \
+            --graphbolt "$PWD/graphbolt-runtime/graphbolt_sssp_patched" \
+            --portability-patch-id "$PATCH_ID" \
+            --out evidence/pr69/omp1
+
+      - name: Canonical exact qualification OMP4
+        env:
+          OMP_NUM_THREADS: '4'
+          LD_PRELOAD: ${{ github.workspace }}/external/mimalloc/out/release/libmimalloc.so
+        run: |
+          set -euo pipefail
+          python3 tools/run_pr69_graphbolt_portability_qualification.py \
+            --graphbolt "$PWD/graphbolt-runtime/graphbolt_sssp_patched" \
+            --portability-patch-id "$PATCH_ID" \
+            --out evidence/pr69/omp4
+
+      - name: Enforce canonical patched qualification contract
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          expected_q = 'QUALIFIED_DIRECTED_FIXED_SOURCE_WEIGHTED_STREAMING_SSSP_WITH_UINT16_DISTANCE_BOUND_PORTABILITY_PATCHED'
+          expected_sha = '7c2792cc77d59b9722288ded8c3c62f6a9a87fc7'
+          expected_patch = 'kickstarter-missing-return-v1'
+          summary = {}
+          for mode in ('omp1', 'omp4'):
+              d = json.loads(Path(f'evidence/pr69/{mode}/qualification.json').read_text())
+              assert d['graphbolt_commit'] == expected_sha
+              assert d['upstream_algorithm_modified'] is True
+              assert d['modification_class'] == 'PORTABILITY_PATCH_ONLY'
+              assert d['portability_patch_id'] == expected_patch
+              assert d['semantic_matrix_changed_from_preregistered_pr69'] is False
+              assert d['application_distance_boundary'] == 65535
+              assert d['planned_case_count'] == 9
+              assert d['case_count'] == 9
+              assert d['full_matrix_executed'] is True
+              assert d['all_exact'] is True
+              assert d['exact_case_count'] == 9
+              assert d['checks'] == 729
+              assert d['qualification'] == expected_q
+              assert d['first_failure'] is None
+              summary[mode] = {
+                  'qualification': d['qualification'],
+                  'exact_case_count': d['exact_case_count'],
+                  'checks': d['checks'],
+              }
+          Path('evidence/pr69/canonical-summary.json').write_text(
+              json.dumps({
+                  'disposition': 'QUALIFIED_ONLY_WITH_DOCUMENTED_PORTABILITY_PATCH',
+                  'graphbolt_commit': expected_sha,
+                  'portability_patch_id': expected_patch,
+                  'performance_claim': False,
+                  'replications': summary,
+              }, indent=2, sort_keys=True) + '\n'
+          )
+          print(json.dumps(summary, indent=2, sort_keys=True))
+          PY
+
+      - name: Record R7 provenance and negative-knowledge ledger
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+            echo "head_sha=${GITHUB_SHA}"
+            echo "graphbolt_sha=${GRAPHBOLT_SHA}"
+            echo "mimalloc_sha=${MIMALLOC_SHA}"
+            echo "portability_patch_id=${PATCH_ID}"
+            echo "build=-std=c++14 -O3 -g -DOPENMP -fopenmp -DEDGELONG -DEDGEDATA -include cstdint"
+            echo "allocator=LD_PRELOAD pinned mimalloc v1.6.0"
+            echo "canonical_replications=OMP_NUM_THREADS=1 and OMP_NUM_THREADS=4"
+            echo "semantic_matrix=unchanged PR69 9-case matrix; 729 exact checks per replication"
+            echo "root_cause=UBSan run 38809640661 job 116679315852 proved KickStarterEngine::traditionalIncrementalComputation reaches end of value-returning function without return"
+            echo "causal_revalidation=run 38809864529 job 116680073394: one-line return-0 patch restored 9/9 exact and 729/729 checks under OMP1 and OMP4"
+            echo "negative_knowledge=pristine pinned source is not admitted under GCC13 OpenMP compatibility build; O3 timed out, O0 SIGILL, UBSan exposed missing-return UB"
+            echo "claim_boundary=no performance result; no universal GraphBolt claim; qualification applies only to documented patched comparator and bounded semantic slice"
+            python3 --version
+            g++ --version | head -1
+            cmake --version | head -1
+            uname -a
+          } > evidence/pr69/provenance/environment.txt
+
+      - name: Upload canonical qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr69-graphbolt-portability-qualified-${{ github.event.pull_request.head.sha || github.sha }}
+          path: evidence/pr69
+          if-no-files-found: error
+          retention-days: 90
