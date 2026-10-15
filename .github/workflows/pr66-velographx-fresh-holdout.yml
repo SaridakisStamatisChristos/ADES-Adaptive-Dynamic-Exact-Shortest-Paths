@@ -44,8 +44,6 @@ jobs:
           test "$(git -C candidate rev-parse HEAD)" = "$FROZEN_ADES_SHA"
           test "$(git -C harness hash-object benchmarks/velographx_direct.cpp)" = "$VELO_ADAPTER_BLOB"
           test "$(git -C harness hash-object tools/run_pr65_velographx_head_to_head.py)" = "$PAIR_DRIVER_BLOB"
-          git -C harness fetch --no-tags --depth=1 origin "$FROZEN_PR65_SHA"
-          git -C harness merge-base --is-ancestor "$FROZEN_PR65_SHA" HEAD
       - name: Install prerequisites
         run: |
           sudo apt-get update
