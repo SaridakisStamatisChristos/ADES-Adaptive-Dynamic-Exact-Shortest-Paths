@@ -1,0 +1,151 @@
+name: ADES PR66 fresh VeloGraphX source-reuse holdout
+
+on:
+  push:
+    branches: [pr66-velographx-fresh-source-reuse-holdout]
+  pull_request:
+    paths:
+      - 'tools/oracle_from_trace.cpp'
+      - 'tools/run_pr66_velographx_holdout.py'
+      - 'tools/run_pr66_velographx_holdout_v2.py'
+      - '.github/workflows/pr66-velographx-fresh-holdout.yml'
+
+permissions:
+  contents: read
+
+env:
+  FROZEN_ADES_SHA: cf7cbc3ed7d9d37ad673a540485a1eee781d47fe
+  FROZEN_PR65_SHA: b8ce372b957d53e7e9f72807a3cb4102a8b1697c
+  VELOGRAPHX_SHA: 2aa84ce81a180487239c661b65639e5100136075
+  BOOST_SHA256: 5c1d40cb8e19adbf740a4ec2da35b3e58f3f5804b1dce44deb53df72193cbc6c
+  VELO_ADAPTER_BLOB: b09a9f51b2b0300dce2801d0a8afaa49440d45a6
+  PAIR_DRIVER_BLOB: 44019d478377282b5056a6b07d86d76757f7efc0
+
+jobs:
+  fresh-dynamic-holdout:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - name: Checkout PR66 holdout harness
+        uses: actions/checkout@v4
+        with:
+          path: harness
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Checkout frozen ADES candidate
+        uses: actions/checkout@v4
+        with:
+          path: candidate
+          ref: ${{ env.FROZEN_ADES_SHA }}
+      - name: Verify frozen code identities before execution
+        env:
+          HARNESS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git -C harness rev-parse HEAD)" = "$HARNESS_SHA"
+          test "$(git -C candidate rev-parse HEAD)" = "$FROZEN_ADES_SHA"
+          test "$(git -C harness hash-object benchmarks/velographx_direct.cpp)" = "$VELO_ADAPTER_BLOB"
+          test "$(git -C harness hash-object tools/run_pr65_velographx_head_to_head.py)" = "$PAIR_DRIVER_BLOB"
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake curl bzip2 zlib1g-dev time
+      - name: Fetch exact unmodified VeloGraphX and pinned Boost 1.92.0
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout https://github.com/sauravsingla/VeloGraphX.git external/velographx
+          git -C external/velographx fetch --depth=1 origin "$VELOGRAPHX_SHA"
+          git -C external/velographx checkout --detach "$VELOGRAPHX_SHA"
+          test "$(git -C external/velographx rev-parse HEAD)" = "$VELOGRAPHX_SHA"
+          test -z "$(git -C external/velographx status --porcelain)"
+          curl --fail --location --retry 4 --retry-all-errors \
+            https://archives.boost.io/release/1.92.0/source/boost_1_92_0.tar.bz2 \
+            --output boost_1_92_0.tar.bz2
+          echo "$BOOST_SHA256  boost_1_92_0.tar.bz2" | sha256sum --check --strict
+          tar -xjf boost_1_92_0.tar.bz2
+      - name: Build frozen candidate, cross-oracle, and VeloGraphX adapter
+        run: |
+          set -euo pipefail
+          cmake -S candidate -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2 --target ades_workload_v2 ades_bench
+          g++ -std=c++20 -O2 -DNDEBUG \
+            -I boost_1_92_0 -I candidate/include \
+            harness/tools/oracle_from_trace.cpp build/libades.a -lz \
+            -o oracle_from_trace
+          g++ -std=c++20 -O2 -DNDEBUG \
+            -I candidate/include \
+            candidate/benchmarks/ades_direct.cpp build/libades.a -lz \
+            -o ades_direct
+          g++ -std=c++20 -O2 -DNDEBUG -Wall -Wextra -pedantic \
+            -I external/velographx/include -I candidate/include \
+            harness/benchmarks/velographx_direct.cpp build/libades.a -lz \
+            -o velographx_direct
+          python3 -m py_compile harness/tools/run_pr65_velographx_head_to_head.py
+          python3 -m py_compile harness/tools/run_pr66_velographx_holdout.py
+          python3 -m py_compile harness/tools/run_pr66_velographx_holdout_v2.py
+      - name: Execute corrected preregistered 24-cell dynamic-maintenance holdout
+        run: |
+          set -euo pipefail
+          mkdir -p harness/results/pr66-velographx-holdout
+          PYTHONPATH=harness/tools python3 harness/tools/run_pr66_velographx_holdout_v2.py \
+            --candidate-root candidate \
+            --workload-generator ./build/ades_workload_v2 \
+            --oracle-builder ./oracle_from_trace \
+            --ades ./ades_direct \
+            --velo ./velographx_direct \
+            --pair-driver harness/tools/run_pr65_velographx_head_to_head.py \
+            --out harness/results/pr66-velographx-holdout \
+            | tee harness/results/pr66-velographx-holdout.stdout.txt
+          cat harness/results/pr66-velographx-holdout/holdout_summary.json
+      - name: Verify independent oracle evidence and source-reuse coverage
+        run: |
+          set -euo pipefail
+          oracle_count="$(grep -R -l 'agreement=PASS' harness/results/pr66-velographx-holdout/cells/*/oracle.stdout.txt | wc -l)"
+          test "$oracle_count" -eq 24
+          python3 - <<'PY'
+          import json
+          cells=json.load(open('harness/results/pr66-velographx-holdout/cells.json'))
+          assert len(cells)==24
+          assert all(c['exactness']=='PASS' for c in cells)
+          hot=[c for c in cells if c['family'] in ('hot-pool-2','hot-pool-4')]
+          assert len(hot)==12
+          assert all(c['source_reuse_fraction'] >= 0.80 for c in hot)
+          assert sum(c['velo_cache_hits'] for c in hot) > 0
+          rotating=[c for c in cells if c['family']=='rotating-hot-4']
+          assert len(rotating)==6
+          assert all(c['source_reuse_fraction'] >= 0.80 for c in rotating)
+          print('SOURCE_REUSE_COVERAGE PASS hot_hits=',sum(c['velo_cache_hits'] for c in hot),
+                'rotating_hits=',sum(c['velo_cache_hits'] for c in rotating))
+          PY
+      - name: Record environment and source identities
+        env:
+          HARNESS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          root=harness/results/pr66-velographx-holdout
+          {
+            echo "frozen_ades_sha=$FROZEN_ADES_SHA"
+            echo "frozen_pr65_sha=$FROZEN_PR65_SHA"
+            echo "holdout_harness_sha=$HARNESS_SHA"
+            echo "velographx_sha=$(git -C external/velographx rev-parse HEAD)"
+            echo "velo_adapter_blob=$(git -C harness hash-object benchmarks/velographx_direct.cpp)"
+            echo "pair_driver_blob=$(git -C harness hash-object tools/run_pr65_velographx_head_to_head.py)"
+            echo "oracle_validation=ADES_fresh_Dijkstra_equals_Boost_Graph_1.92.0_Dijkstra_on_every_query"
+            echo "preflight_history=v1 locality_percent=0 falsified source-reuse assumption before accepted holdout; v2 uses fresh seeds 701,809,907 and locality_percent=100 for non-uniform families"
+            echo "runner_os=${RUNNER_OS:-unknown}"
+            echo "runner_arch=${RUNNER_ARCH:-unknown}"
+            sha256sum harness/tools/run_pr66_velographx_holdout.py
+            sha256sum harness/tools/run_pr66_velographx_holdout_v2.py
+            sha256sum harness/tools/oracle_from_trace.cpp
+            sha256sum external/velographx/LICENSE
+            sha256sum external/velographx/include/velographx/incremental/weighted_sssp.hpp
+            sha256sum external/velographx/include/velographx/storage/weighted_dynamic_graph.hpp
+            uname -a
+            lscpu
+          } > "$root/environment.txt"
+      - name: Upload complete PR66 evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr66-velographx-holdout-${{ github.event.pull_request.head.sha || github.sha }}
+          path: harness/results/pr66-velographx-holdout/
+          if-no-files-found: error
+          retention-days: 90
