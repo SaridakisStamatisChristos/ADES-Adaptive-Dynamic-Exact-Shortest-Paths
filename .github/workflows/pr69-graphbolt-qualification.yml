@@ -129,17 +129,10 @@ jobs:
             echo "semantic_build_parallel_mode=upstream OPENMP branch; qualification OMP_NUM_THREADS=4"
             echo "semantic_build_compatibility_include=-include cstdint"
             echo "semantic_build_allocator=mimalloc v1.6.0 at 04f1c3b1e23677ce03bd16137e73089abd552175"
-            echo "preflight_1=official Cilk path unavailable in initial stock environment; no GraphBolt execution"
-            echo "preflight_2=serial host setup failed before execution"
-            echo "preflight_3=serial fallback timed out before initial output"
-            echo "preflight_4=Docker OpenMP bind mount failed before compilation"
-            echo "preflight_5=modern OpenMP compile exposed missing upstream cstdint include"
-            echo "preflight_6=source-preserving O3 OpenMP timed out without mimalloc"
-            echo "preflight_7=mimalloc restored; O3 OMP4 still timed out on frozen first case"
-            echo "preflight_8=O3 OMP1 timed out identically; multithread race hypothesis falsified"
-            echo "preflight_9=initial gdb unavailable"
-            echo "preflight_10=GDB 15.1 async interrupt failed to stop inferior; no stack evidence"
-            echo "preflight_11=pristine GCC13 O0 OMP1 changed failure from timeout to immediate SIGILL(returncode=-4); optimization level affects manifestation"
+            echo "preflight_7=mimalloc restored; pristine O3 OMP4 still timed out on frozen first case"
+            echo "preflight_8=pristine O3 OMP1 timed out identically; multithread race hypothesis falsified"
+            echo "preflight_11=pristine GCC13 O0 OMP1 changed failure to immediate SIGILL(returncode=-4)"
+            echo "preflight_12=UBSan identified execution reaching end of KickStarterEngine::traditionalIncrementalComputation() without return; stack initialCompute->run->SSSP"
             python3 --version
             g++ --version | head -1
             cmake --version | head -1
@@ -155,7 +148,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
-  ubsan-differential:
+  portability-patch-diagnostic:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -169,6 +162,8 @@ jobs:
           git -C external/graphbolt checkout --detach "$GRAPHBOLT_SHA"
           test "$(git -C external/graphbolt rev-parse HEAD)" = "$GRAPHBOLT_SHA"
           test -z "$(git -C external/graphbolt status --porcelain)"
+          mkdir -p evidence/pr69-patch
+          sha256sum external/graphbolt/core/graphBolt/KickStarterEngine.h > evidence/pr69-patch/upstream-kickstarter-sha256.txt
           git clone https://github.com/microsoft/mimalloc.git external/mimalloc
           git -C external/mimalloc checkout --detach "$MIMALLOC_SHA"
           test "$(git -C external/mimalloc rev-parse HEAD)" = "$MIMALLOC_SHA"
@@ -177,57 +172,97 @@ jobs:
           cmake --build external/mimalloc/out/release --parallel 2
           test -f external/mimalloc/out/release/libmimalloc.so
 
-      - name: Build pristine source with UBSan return checks
+      - name: Apply exactly one missing-return portability repair
         run: |
           set -euo pipefail
-          mkdir -p graphbolt-runtime evidence/pr69-ubsan
-          g++ -std=c++14 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
-            -DOPENMP -fopenmp -DEDGELONG -DEDGEDATA -include cstdint \
-            external/graphbolt/apps/SSSP.C -pthread \
-            -o graphbolt-runtime/graphbolt_sssp_ubsan
-          test -x graphbolt-runtime/graphbolt_sssp_ubsan
-          test -z "$(git -C external/graphbolt status --porcelain)"
-          sha256sum graphbolt-runtime/graphbolt_sssp_ubsan > evidence/pr69-ubsan/binary-sha256.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('external/graphbolt/core/graphBolt/KickStarterEngine.h')
+          s = p.read_text()
+          old = '''  int traditionalIncrementalComputation() {\n    while (active_vertices_bitset.anyScheduledTasks()) {'''
+          if s.count(old) != 1:
+              raise SystemExit('expected unique KickStarter traditionalIncrementalComputation signature not found')
+          marker = '''      }\n    }\n  }\n\n  void deltaCompute(edgeArray &edge_additions, edgeArray &edge_deletions) {'''
+          replacement = '''      }\n    }\n    return 0;  // ADES PR69 portability repair: caller ignores return value.\n  }\n\n  void deltaCompute(edgeArray &edge_additions, edgeArray &edge_deletions) {'''
+          start = s.index(old)
+          tail = s[start:]
+          if tail.count(marker) != 1:
+              raise SystemExit('expected unique function terminator not found')
+          tail = tail.replace(marker, replacement, 1)
+          p.write_text(s[:start] + tail)
+          PY
+          git -C external/graphbolt diff --check
+          git -C external/graphbolt diff -- core/graphBolt/KickStarterEngine.h | tee evidence/pr69-patch/portability.patch
+          test "$(git -C external/graphbolt diff --numstat | awk '{print $1":"$2":"$3}')" = "1:0:core/graphBolt/KickStarterEngine.h"
+          sha256sum external/graphbolt/core/graphBolt/KickStarterEngine.h > evidence/pr69-patch/patched-kickstarter-sha256.txt
+          sha256sum evidence/pr69-patch/portability.patch > evidence/pr69-patch/patch-sha256.txt
 
-      - name: Run frozen matrix under UBSan
+      - name: Build portability-patched O3 binary
+        run: |
+          set -euo pipefail
+          mkdir -p graphbolt-runtime
+          g++ -std=c++14 -O3 -g -DOPENMP -fopenmp -DEDGELONG -DEDGEDATA \
+            -include cstdint external/graphbolt/apps/SSSP.C -pthread \
+            -o graphbolt-runtime/graphbolt_sssp_patched
+          test -x graphbolt-runtime/graphbolt_sssp_patched
+          sha256sum graphbolt-runtime/graphbolt_sssp_patched > evidence/pr69-patch/binary-sha256.txt
+
+      - name: Run frozen matrix patched OMP1
         env:
           OMP_NUM_THREADS: '1'
           LD_PRELOAD: ${{ github.workspace }}/external/mimalloc/out/release/libmimalloc.so
-          UBSAN_OPTIONS: 'print_stacktrace=1:halt_on_error=1'
         run: |
           set +e
           python3 tools/run_pr69_graphbolt_qualification.py \
-            --graphbolt "$PWD/graphbolt-runtime/graphbolt_sssp_ubsan" \
-            --out evidence/pr69-ubsan/matrix
+            --graphbolt "$PWD/graphbolt-runtime/graphbolt_sssp_patched" \
+            --out evidence/pr69-patch/omp1
           rc=$?
-          echo "$rc" > evidence/pr69-ubsan/exit-code.txt
-          cat evidence/pr69-ubsan/matrix/qualification.json || true
-          cat evidence/pr69-ubsan/matrix/cases/seed-1201__source-0/stderr.txt || true
+          echo "$rc" > evidence/pr69-patch/omp1-exit-code.txt
           exit 0
 
-      - name: Record UBSan provenance
-        if: always()
+      - name: Run frozen matrix patched OMP4
+        env:
+          OMP_NUM_THREADS: '4'
+          LD_PRELOAD: ${{ github.workspace }}/external/mimalloc/out/release/libmimalloc.so
         run: |
-          set -euo pipefail
-          {
-            echo "head_sha=${GITHUB_SHA}"
-            echo "graphbolt_sha=${GRAPHBOLT_SHA}"
-            echo "mimalloc_sha=${MIMALLOC_SHA}"
-            echo "diagnostic=UBSan undefined + return checks"
-            echo "build=-std=c++14 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all -DOPENMP -fopenmp -DEDGELONG -DEDGEDATA -include cstdint"
-            echo "omp_threads=1"
-            echo "diagnostic_only=true"
-            echo "upstream_source_modified=false"
-            echo "semantic_gate_modified=false"
-            g++ --version | head -1
-            uname -a
-          } > evidence/pr69-ubsan/provenance.txt
+          set +e
+          python3 tools/run_pr69_graphbolt_qualification.py \
+            --graphbolt "$PWD/graphbolt-runtime/graphbolt_sssp_patched" \
+            --out evidence/pr69-patch/omp4
+          rc=$?
+          echo "$rc" > evidence/pr69-patch/omp4-exit-code.txt
+          exit 0
 
-      - name: Upload UBSan evidence
+      - name: Evaluate portability-patch diagnostic
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          outcomes = {}
+          for mode in ('omp1', 'omp4'):
+              d = json.loads(Path(f'evidence/pr69-patch/{mode}/qualification.json').read_text())
+              outcomes[mode] = {
+                  'full_matrix_executed': d['full_matrix_executed'],
+                  'all_exact': d['all_exact'],
+                  'exact_case_count': d['exact_case_count'],
+                  'checks': d['checks'],
+                  'qualification': d['qualification'],
+              }
+          Path('evidence/pr69-patch/diagnostic-summary.json').write_text(json.dumps({
+              'diagnostic_only': True,
+              'upstream_source_modified': True,
+              'modification': 'one explicit return 0 in KickStarterEngine::traditionalIncrementalComputation; its SSSP caller ignores the return value',
+              'semantic_matrix_changed': False,
+              'outcomes': outcomes,
+          }, indent=2, sort_keys=True) + '\n')
+          print(json.dumps(outcomes, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload portability diagnostic evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ades-pr69-graphbolt-ubsan-${{ github.sha }}
-          path: evidence/pr69-ubsan
+          name: ades-pr69-graphbolt-portability-patch-${{ github.sha }}
+          path: evidence/pr69-patch
           if-no-files-found: error
           retention-days: 90
