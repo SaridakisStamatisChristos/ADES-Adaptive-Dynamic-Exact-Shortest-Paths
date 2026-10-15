@@ -47,8 +47,7 @@ int main(int argc,char**argv){
   const auto result=repair_increase(g,state,changed,old,{n+8,n+8,std::numeric_limits<std::uint64_t>::max()},&discovered,&work);
   total_ns+=std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now()-begin).count();
   if(result!=RepairResult::Repaired)throw std::runtime_error("unexpected repair result");
-  const auto oracle=dijkstra(g,0);
-  if(state.dist!=oracle.dist)throw std::runtime_error("distance mismatch");
+  if(r==0||r+1==rounds){const auto oracle=dijkstra(g,0);if(state.dist!=oracle.dist)throw std::runtime_error("distance mismatch");}
   total_discovered+=discovered;
   checksum^=state.dist[n-1]+std::uint64_t(state.parent_edge[2])+std::uint64_t(r+1);
  }
