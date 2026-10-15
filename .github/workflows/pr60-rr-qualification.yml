@@ -1,0 +1,138 @@
+name: ADES PR60 Ramalingam-Reps semantic preflight
+
+on:
+  pull_request:
+    paths:
+      - 'tools/probe_rr_semantics.c'
+      - '.github/workflows/pr60-rr-qualification.yml'
+      - 'benchmarks/comparators/registry.json'
+  push:
+    branches:
+      - pr60-rr-semantic-preflight
+
+permissions:
+  contents: read
+
+jobs:
+  semantic-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout ADES harness
+        uses: actions/checkout@v4
+        with:
+          path: candidate
+
+      - name: Fetch pinned external Ramalingam-Reps implementation
+        run: |
+          set -euo pipefail
+          mkdir rr-src
+          cd rr-src
+          git init
+          git remote add origin https://github.com/felipe31/Ramalingam-Reps.git
+          git -c protocol.version=2 fetch --depth=1 origin 20aa865a52b67bd0ff402e2946e51541db0b5473
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "20aa865a52b67bd0ff402e2946e51541db0b5473"
+          grep -q 'The MIT License' LICENSE.md
+          test -f rr_binary_heap/heap.c
+          test -f rr_binary_heap/graph.c
+          test -f rr_binary_heap/rr.c
+          test -f rr_binary_heap/rr.h
+          git status --porcelain
+          test -z "$(git status --porcelain)"
+
+      - name: Compile pinned source unchanged with external harness
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -O2 -DNDEBUG -Wall -Wextra \
+            -I rr-src/rr_binary_heap \
+            rr-src/rr_binary_heap/heap.c \
+            rr-src/rr_binary_heap/graph.c \
+            rr-src/rr_binary_heap/rr.c \
+            candidate/tools/probe_rr_semantics.c \
+            -o probe_rr_semantics
+          test -z "$(git -C rr-src status --porcelain)"
+
+      - name: Execute isolated semantic cases
+        run: |
+          set -euo pipefail
+          out=candidate/results/pr60-rr-preflight
+          mkdir -p "$out"
+          commit=20aa865a52b67bd0ff402e2946e51541db0b5473
+          for case in simple zero asymmetric random; do
+            echo "[driver] starting $case"
+            set +e
+            timeout --signal=TERM --kill-after=5s 30s \
+              ./probe_rr_semantics --case "$case" "$out/$case.json" "$commit" \
+              >"$out/$case.stdout" 2>"$out/$case.stderr"
+            code=$?
+            set -e
+            printf '%s\n' "$code" > "$out/$case.exit_code"
+            cat "$out/$case.stderr"
+            if [ "$code" -eq 124 ] || [ "$code" -eq 137 ]; then
+              echo "[driver] $case: TIMEOUT"
+            elif [ "$code" -ne 0 ]; then
+              echo "[driver] $case: PROCESS_FAILURE exit=$code"
+            elif [ -f "$out/$case.json" ]; then
+              python3 -m json.tool "$out/$case.json"
+            else
+              echo "[driver] $case: missing report"
+            fi
+          done
+
+          python3 - "$out" <<'PY'
+          import json, pathlib, sys
+          root = pathlib.Path(sys.argv[1])
+          cases = []
+          semantic_pass = True
+          for name in ['simple', 'zero', 'asymmetric', 'random']:
+              code = int((root / f'{name}.exit_code').read_text().strip())
+              report_path = root / f'{name}.json'
+              if code in (124, 137):
+                  item = {'case': name, 'outcome': 'TIMEOUT', 'exit_code': code, 'pass': False}
+              elif code != 0:
+                  item = {'case': name, 'outcome': 'PROCESS_FAILURE', 'exit_code': code, 'pass': False}
+              elif not report_path.exists():
+                  item = {'case': name, 'outcome': 'MISSING_REPORT', 'exit_code': code, 'pass': False}
+              else:
+                  report = json.loads(report_path.read_text())
+                  ok = report.get('pass') is True
+                  item = {
+                      'case': name,
+                      'outcome': 'PASS' if ok else 'MISMATCH',
+                      'exit_code': code,
+                      'pass': ok,
+                      'completed_steps': report.get('completed_steps'),
+                      'increase_updates': report.get('increase_updates'),
+                      'decrease_updates': report.get('decrease_updates'),
+                      'mismatch_count': report.get('mismatch_count'),
+                      'mismatches': report.get('mismatches', [])[:8],
+                  }
+              cases.append(item)
+              semantic_pass &= item['pass']
+          summary = {
+              'schema': 'ades-rr-semantic-preflight-v1',
+              'rr_repository': 'https://github.com/felipe31/Ramalingam-Reps',
+              'rr_commit': '20aa865a52b67bd0ff402e2946e51541db0b5473',
+              'external_source_modified': False,
+              'source_model': 'fixed source 0',
+              'weight_change_adapter': 'rr_remove_edge then rr_add_edge',
+              'oracle': 'independent Bellman-Ford in ADES harness',
+              'case_timeout_seconds': 30,
+              'semantic_preflight_pass': semantic_pass,
+              'direct_status_after_this_probe': 'PENDING',
+              'cases': cases,
+          }
+          (root / 'SUMMARY.json').write_text(json.dumps(summary, indent=2) + '\n')
+          print(json.dumps(summary, indent=2))
+          PY
+          test -z "$(git -C rr-src status --porcelain)"
+
+      - name: Upload qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr60-rr-preflight-${{ github.sha }}
+          path: candidate/results/pr60-rr-preflight/
+          if-no-files-found: error
+          retention-days: 90
