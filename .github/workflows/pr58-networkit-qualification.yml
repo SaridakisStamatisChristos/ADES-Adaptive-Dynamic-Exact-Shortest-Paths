@@ -1,0 +1,62 @@
+name: ADES PR58 NetworKit DynDijkstra qualification preflight
+
+on:
+  pull_request:
+    paths:
+      - 'tools/probe_networkit_dyndijkstra.py'
+      - '.github/workflows/pr58-networkit-qualification.yml'
+  push:
+    branches:
+      - pr58-networkit-dyndijkstra-qualification
+
+permissions:
+  contents: read
+
+jobs:
+  semantic-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout ADES probe
+        uses: actions/checkout@v4
+        with:
+          path: candidate
+
+      - name: Install build prerequisites
+        run: |
+          python3 -m pip install --upgrade pip
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build python3-dev
+
+      - name: Fetch pinned NetworKit source
+        run: |
+          mkdir networkit-src
+          cd networkit-src
+          git init
+          git remote add origin https://github.com/networkit/networkit.git
+          for attempt in 1 2 3 4; do
+            if git -c protocol.version=2 fetch --depth=1 origin ab420840dbb8a61fcb1ea0d89e5acc44fe66f2ab; then
+              break
+            fi
+            if [ "$attempt" = 4 ]; then exit 1; fi
+            sleep $((attempt * 2))
+          done
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "ab420840dbb8a61fcb1ea0d89e5acc44fe66f2ab"
+
+      - name: Build and install pinned NetworKit
+        run: python3 -m pip install ./networkit-src
+
+      - name: Run directed mixed-weight semantic probe
+        run: |
+          mkdir -p candidate/results/pr58-networkit-preflight
+          python3 candidate/tools/probe_networkit_dyndijkstra.py \
+            --out candidate/results/pr58-networkit-preflight
+
+      - name: Upload qualification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr58-networkit-preflight-${{ github.sha }}
+          path: candidate/results/pr58-networkit-preflight/
+          if-no-files-found: error
+          retention-days: 90
