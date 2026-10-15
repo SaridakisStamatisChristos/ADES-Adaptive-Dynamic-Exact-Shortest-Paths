@@ -191,9 +191,6 @@ jobs:
             graph_plain="$dir/graph.gr"
             gzip -dc "$graph_gz" > "$graph_plain"
 
-            # Generate the standard deterministic mixed update sequence.  The
-            # ORACLE output itself is not used here; the scale probe has an
-            # independent indexed-heap Dijkstra oracle.
             ADES_TRACE_FILE="$dir/base_trace.txt" \
               ./build/ades_bench "$graph_gz" ORACLE 120 7 0 mixed work "$dir/base_oracle.txt" \
               > "$dir/base_oracle_row.csv"
@@ -226,6 +223,7 @@ jobs:
             if [ -f "$dir/report.json" ]; then
               python3 -m json.tool "$dir/report.json"
             fi
+            rm -f "$graph_plain"
           done
 
           python3 - "$root" <<'PY'
@@ -246,7 +244,7 @@ jobs:
               else:
                   r = json.loads(report_path.read_text())
                   ok = (
-                      r.get('parallel_arc_ambiguity') is False and
+                      r.get('parallel_min_collapse_adapter') is True and
                       r.get('edge_int_domain_compatible') is True and
                       r.get('path_int_domain_compatible') is True and
                       r.get('source0_only') is True and
@@ -257,10 +255,11 @@ jobs:
               rows.append(row)
               overall &= row['pass']
           summary = {
-              'schema': 'ades-rr-ny-source0-scale-v1',
+              'schema': 'ades-rr-ny-source0-scale-v2',
               'rr_commit': '20aa865a52b67bd0ff402e2946e51541db0b5473',
               'external_source_modified': False,
               'source_model': 'fixed source 0',
+              'parallel_arc_adapter': 'collapse each directed bundle to its current minimum weight',
               'scale_preflight_pass': overall,
               'direct_status_after_this_probe': 'PENDING',
               'graphs': rows,
