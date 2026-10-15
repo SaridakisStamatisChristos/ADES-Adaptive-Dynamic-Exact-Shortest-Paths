@@ -1,0 +1,27 @@
+cmake_minimum_required(VERSION 3.20)
+project(ades_pr68_networkit_adapter CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+if(NOT DEFINED NETWORKIT_SOURCE OR NOT DEFINED ADES_SOURCE OR NOT DEFINED ADES_LIBRARY OR NOT DEFINED ADAPTER_SOURCE)
+  message(FATAL_ERROR "NETWORKIT_SOURCE, ADES_SOURCE, ADES_LIBRARY, and ADAPTER_SOURCE are required")
+endif()
+
+set(NETWORKIT_BUILD_CORE ON CACHE BOOL "" FORCE)
+set(NETWORKIT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(NETWORKIT_STATIC ON CACHE BOOL "" FORCE)
+set(NETWORKIT_MONOLITH ON CACHE BOOL "" FORCE)
+set(NETWORKIT_NATIVE OFF CACHE BOOL "" FORCE)
+set(NETWORKIT_WARNINGS OFF CACHE BOOL "" FORCE)
+set(NETWORKIT_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
+
+find_package(ZLIB REQUIRED)
+add_subdirectory("${NETWORKIT_SOURCE}" "${CMAKE_BINARY_DIR}/networkit-src-build" EXCLUDE_FROM_ALL)
+
+add_executable(networkit_direct "${ADAPTER_SOURCE}")
+target_include_directories(networkit_direct PRIVATE "${ADES_SOURCE}/include")
+target_link_libraries(networkit_direct PRIVATE networkit "${ADES_LIBRARY}" ZLIB::ZLIB)
+
+target_compile_options(networkit_direct PRIVATE -O2 -DNDEBUG -Wall -Wextra -pedantic)
