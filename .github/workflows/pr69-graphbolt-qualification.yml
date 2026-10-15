@@ -82,13 +82,10 @@ jobs:
           echo "$code" > evidence/pr69/diagnostic-omp1/diagnostic-exit-code.txt
           exit 0
 
-      - name: Diagnostic - capture live stuck stack on frozen first case
+      - name: Diagnostic - stack capture delegated to isolated job
         run: |
-          set +e
-          mkdir -p evidence/pr69/diagnostic-gdb/out
-          echo "gdb intentionally unavailable in qualification job; stack capture moved to isolated localize-gdb job" \
-            > evidence/pr69/diagnostic-gdb/backtrace.txt
-          exit 0
+          mkdir -p evidence/pr69/diagnostic-gdb
+          echo "stack capture delegated to isolated localize-gdb job; qualification environment remains untouched" > evidence/pr69/diagnostic-gdb/backtrace.txt
 
       - name: Execute exact semantic qualification
         env:
@@ -147,6 +144,7 @@ jobs:
             echo "preflight_7=mimalloc restored and LD_PRELOAD active; OMP_NUM_THREADS=4 still timed out on first frozen case at 20s before semantic output; no exactness outcome"
             echo "preflight_8=same mimalloc-backed binary and frozen case timed out identically with OMP_NUM_THREADS=1; multi-thread race hypothesis falsified"
             echo "preflight_9=initial stack-capture attempt could not run because hosted runner lacked gdb; no localization evidence"
+            echo "preflight_10=isolated GDB 15.1 job launched inferior but async interrupt failed to stop it; no stack evidence"
             python3 --version
             g++ --version | head -1
             cmake --version | head -1
@@ -236,20 +234,24 @@ jobs:
           cat > evidence/pr69-gdb/commands.gdb <<GDB
           set pagination off
           set confirm off
-          set target-async on
-          set environment OMP_NUM_THREADS 1
-          set environment LD_PRELOAD $LD_PRELOAD
-          run -source 0 -numberOfUpdateBatches 80 -nEdges 1 -fixedBatchSize -simple -enforceEdgeValidity -streamPath $stream -outputFile $out $graph &
-          shell sleep 5
-          interrupt
+          run -source 0 -numberOfUpdateBatches 80 -nEdges 1 -fixedBatchSize -simple -enforceEdgeValidity -streamPath $stream -outputFile $out $graph
           info threads
           thread apply all bt full
-          kill
           quit
           GDB
-          timeout 30s gdb -q -batch -x evidence/pr69-gdb/commands.gdb "$exe" > evidence/pr69-gdb/backtrace.txt 2>&1
-          rc=$?
-          echo "$rc" > evidence/pr69-gdb/gdb-exit-code.txt
+          gdb -q -batch -x evidence/pr69-gdb/commands.gdb "$exe" > evidence/pr69-gdb/backtrace.txt 2>&1 &
+          gdb_pid=$!
+          sleep 5
+          kill -INT "$gdb_pid" 2>/dev/null || true
+          for _ in $(seq 1 10); do
+            if ! kill -0 "$gdb_pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if kill -0 "$gdb_pid" 2>/dev/null; then
+            echo "GDB did not exit after SIGINT; terminating diagnostic" >> evidence/pr69-gdb/backtrace.txt
+            kill -TERM "$gdb_pid" 2>/dev/null || true
+          fi
+          wait "$gdb_pid" || true
           tail -n 260 evidence/pr69-gdb/backtrace.txt || true
           exit 0
 
@@ -276,5 +278,80 @@ jobs:
         with:
           name: ades-pr69-graphbolt-gdb-${{ github.sha }}
           path: evidence/pr69-gdb
+          if-no-files-found: error
+          retention-days: 90
+
+  optimizer-differential:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout diagnostic head
+        uses: actions/checkout@v4
+
+      - name: Fetch pinned GraphBolt and mimalloc
+        run: |
+          set -euo pipefail
+          git clone https://github.com/pdclab/graphbolt.git external/graphbolt
+          git -C external/graphbolt checkout --detach "$GRAPHBOLT_SHA"
+          test "$(git -C external/graphbolt rev-parse HEAD)" = "$GRAPHBOLT_SHA"
+          test -z "$(git -C external/graphbolt status --porcelain)"
+          git clone https://github.com/microsoft/mimalloc.git external/mimalloc
+          git -C external/mimalloc checkout --detach "$MIMALLOC_SHA"
+          test "$(git -C external/mimalloc rev-parse HEAD)" = "$MIMALLOC_SHA"
+          cmake -S external/mimalloc -B external/mimalloc/out/release \
+            -DCMAKE_BUILD_TYPE=Release -DMI_BUILD_TESTS=OFF
+          cmake --build external/mimalloc/out/release --parallel 2
+          test -f external/mimalloc/out/release/libmimalloc.so
+
+      - name: Build pristine source at O0
+        run: |
+          set -euo pipefail
+          mkdir -p graphbolt-runtime evidence/pr69-o0
+          g++ -std=c++14 -O0 -g -DOPENMP -fopenmp -DEDGELONG -DEDGEDATA \
+            -include cstdint external/graphbolt/apps/SSSP.C -pthread \
+            -o graphbolt-runtime/graphbolt_sssp_o0
+          test -x graphbolt-runtime/graphbolt_sssp_o0
+          test -z "$(git -C external/graphbolt status --porcelain)"
+          sha256sum graphbolt-runtime/graphbolt_sssp_o0 > evidence/pr69-o0/binary-sha256.txt
+          g++ --version | head -1 > evidence/pr69-o0/compiler.txt
+
+      - name: Run exact frozen matrix at O0
+        env:
+          OMP_NUM_THREADS: '1'
+          LD_PRELOAD: ${{ github.workspace }}/external/mimalloc/out/release/libmimalloc.so
+        run: |
+          set +e
+          python3 tools/run_pr69_graphbolt_qualification.py \
+            --graphbolt "$PWD/graphbolt-runtime/graphbolt_sssp_o0" \
+            --out evidence/pr69-o0/matrix
+          rc=$?
+          echo "$rc" > evidence/pr69-o0/exit-code.txt
+          cat evidence/pr69-o0/matrix/qualification.json || true
+          exit 0
+
+      - name: Record O0 diagnostic provenance
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "head_sha=${GITHUB_SHA}"
+            echo "graphbolt_sha=${GRAPHBOLT_SHA}"
+            echo "mimalloc_sha=${MIMALLOC_SHA}"
+            echo "single_changed_factor=optimization_level_O3_to_O0"
+            echo "build=-std=c++14 -O0 -g -DOPENMP -fopenmp -DEDGELONG -DEDGEDATA -include cstdint"
+            echo "omp_threads=1"
+            echo "diagnostic_only=true"
+            echo "upstream_source_modified=false"
+            echo "semantic_gate_modified=false"
+            g++ --version | head -1
+            uname -a
+          } > evidence/pr69-o0/provenance.txt
+
+      - name: Upload O0 differential evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr69-graphbolt-o0-${{ github.sha }}
+          path: evidence/pr69-o0
           if-no-files-found: error
           retention-days: 90
