@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """PR69 semantic qualification for pinned GraphBolt/DZiG weighted SSSP.
 
-No performance claim is made here.  The test exercises the upstream weighted
+No performance claim is made here. The test exercises the upstream weighted
 SSSP executable through its documented WeightedAdjacencyGraph + streaming
-edge-operation interface.  A logical weight replacement is represented as two
-separate upstream operations: delete (u,v,old), then add (u,v,new).  GraphBolt's
+edge-operation interface. A logical weight replacement is represented as two
+separate upstream operations: delete (u,v,old), then add (u,v,new). GraphBolt's
 full all-vertex output is checked against a fresh Python Dijkstra oracle after
 initialization and after every deletion/addition phase.
 
 The graph is deliberately small and all finite path lengths are kept far below
 GraphBolt SSSP's uint16_t/MAX_DISTANCE=65535 application boundary.
+
+Execution timeout is diagnostic only. It does not turn a slow run into a pass:
+qualification still requires every preregistered case and every exactness check.
 """
 from __future__ import annotations
 
@@ -28,12 +31,12 @@ INITIAL_EDGES = 320
 REPLACEMENTS = 40
 SEEDS = [1201, 2203, 3209]
 SOURCES = [0, 11, 37]
+CASE_TIMEOUT_SECONDS = 20
 
 
 def make_graph(seed: int) -> dict[tuple[int, int], int]:
     rng = random.Random(seed)
     edges: dict[tuple[int, int], int] = {}
-    # Strongly connected directed cycle backbone.
     for u in range(N):
         edges[(u, (u + 1) % N)] = rng.randint(1, 20)
     while len(edges) < INITIAL_EDGES:
@@ -49,9 +52,7 @@ def write_weighted_adjacency(path: Path, edges: dict[tuple[int, int], int]) -> N
     by_src: list[list[tuple[int, int]]] = [[] for _ in range(N)]
     for (u, v), w in sorted(edges.items()):
         by_src[u].append((v, w))
-    offsets = []
-    destinations = []
-    weights = []
+    offsets, destinations, weights = [], [], []
     offset = 0
     for u in range(N):
         offsets.append(offset)
@@ -98,7 +99,6 @@ def make_replacements(seed: int, base: dict[tuple[int, int], int]) -> list[tuple
     for i, key in enumerate(chosen):
         old = current[key]
         if i % 2 == 0:
-            # decrease, but retain positive weight
             new = max(1, old - rng.randint(1, min(old, 7)))
             if new == old:
                 new = old + 1
@@ -142,6 +142,14 @@ def first_mismatch(got: list[int], expected: list[int]):
     return None
 
 
+def text_tail(value, limit=6000) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", errors="replace")
+    return str(value)[-limit:]
+
+
 def run_case(exe: str, work: Path, seed: int, source: int) -> dict:
     case = work / f"seed-{seed}__source-{source}"
     case.mkdir(parents=True, exist_ok=True)
@@ -167,14 +175,35 @@ def run_case(exe: str, work: Path, seed: int, source: int) -> dict:
         "-outputFile", str(out_prefix),
         str(graph_path),
     ]
-    proc = subprocess.run(cmd, text=True, capture_output=True, env=env)
+    try:
+        proc = subprocess.run(
+            cmd, text=True, capture_output=True, env=env,
+            timeout=CASE_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = text_tail(exc.stdout)
+        stderr = text_tail(exc.stderr)
+        (case / "stdout.txt").write_text(stdout, encoding="utf-8")
+        (case / "stderr.txt").write_text(stderr, encoding="utf-8")
+        return {
+            "seed": seed,
+            "source": source,
+            "exact": False,
+            "execution_failed": True,
+            "failure_kind": "TIMEOUT",
+            "timeout_seconds": CASE_TIMEOUT_SECONDS,
+            "stdout_tail": stdout,
+            "stderr_tail": stderr,
+            "output_files_present": sorted(p.name for p in case.glob("out-*")),
+        }
+
     (case / "stdout.txt").write_text(proc.stdout, encoding="utf-8")
     (case / "stderr.txt").write_text(proc.stderr, encoding="utf-8")
     if proc.returncode != 0:
         return {
             "seed": seed, "source": source, "exact": False, "execution_failed": True,
-            "returncode": proc.returncode,
-            "stderr_tail": proc.stderr[-4000:],
+            "failure_kind": "NONZERO_EXIT", "returncode": proc.returncode,
+            "stdout_tail": proc.stdout[-6000:], "stderr_tail": proc.stderr[-6000:],
         }
 
     state = dict(base)
@@ -232,9 +261,20 @@ def main() -> int:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
-    cases = [run_case(args.graphbolt, out / "cases", seed, source)
-             for seed in SEEDS for source in SOURCES]
-    all_exact = all(c.get("exact") for c in cases)
+    cases = []
+    for seed in SEEDS:
+        for source in SOURCES:
+            case = run_case(args.graphbolt, out / "cases", seed, source)
+            cases.append(case)
+            # An execution failure is an integration witness, not permission to
+            # silently continue and pretend a full semantic matrix was run.
+            if case.get("execution_failed"):
+                break
+        if cases and cases[-1].get("execution_failed"):
+            break
+
+    full_matrix_executed = len(cases) == len(SEEDS) * len(SOURCES)
+    all_exact = full_matrix_executed and all(c.get("exact") for c in cases)
     result = {
         "schema": "ades-pr69-graphbolt-weighted-sssp-qualification-v1",
         "graphbolt_commit": GRAPHBOLT_COMMIT,
@@ -246,7 +286,10 @@ def main() -> int:
         "seeds": SEEDS,
         "sources": SOURCES,
         "replacements_per_case": REPLACEMENTS,
+        "case_timeout_seconds": CASE_TIMEOUT_SECONDS,
+        "planned_case_count": len(SEEDS) * len(SOURCES),
         "case_count": len(cases),
+        "full_matrix_executed": full_matrix_executed,
         "exact_case_count": sum(1 for c in cases if c.get("exact")),
         "checks": sum(c.get("checks", 0) for c in cases),
         "all_exact": all_exact,
@@ -257,11 +300,12 @@ def main() -> int:
         "first_failure": next((c for c in cases if not c.get("exact")), None),
         "cases": cases,
     }
-    (out / "qualification.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n",
-                                             encoding="utf-8")
-    print(json.dumps({k: result[k] for k in
-                      ["qualification", "case_count", "exact_case_count", "checks", "first_failure"]},
-                     indent=2, sort_keys=True))
+    (out / "qualification.json").write_text(
+        json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(json.dumps({k: result[k] for k in [
+        "qualification", "planned_case_count", "case_count", "full_matrix_executed",
+        "exact_case_count", "checks", "first_failure"
+    ]}, indent=2, sort_keys=True))
     return 0 if all_exact else 1
 
 
