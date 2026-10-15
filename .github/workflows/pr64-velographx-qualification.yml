@@ -45,7 +45,7 @@ jobs:
             --out harness/results/pr64-velographx \
             --timeout 15 \
             | tee harness/results/pr64-velographx.stdout.txt
-      - name: Verify exact PR59 NY graph representability
+      - name: Verify exact PR59 NY graph and update-edge representability
         run: |
           set -euo pipefail
           echo '7b2446c7ffe6179efbc42af6812448e8cb782f12968ca2bb1d50d979343056d4  harness/benchmarks/data/USA-road-d.NY.gr.gz' | sha256sum --check --strict
@@ -56,35 +56,48 @@ jobs:
               ('USA-road-d.NY.gr.gz','7b2446c7ffe6179efbc42af6812448e8cb782f12968ca2bb1d50d979343056d4'),
               ('USA-road-t.NY.gr.gz','de902573142dbf12c42b065d9a6a679e4794372eb91d2748ee78089720377156'),
           ]
-          result = {'schema':'ades-pr64-velographx-ny-representability-v1','graphs':{}}
-          all_simple = True
+          # Exact PR59 canonical trace update edge IDs. Distance/travel-time traces
+          # use the same edge-ID sequence; only old/new weights differ.
+          update_ids = [400578,555030,69321,725350,302832,21258,108846,117290,568843,543238,122412,30533,225119,214623,193688,182128,731540,222086,651180,326586,135690,236985,373241,632917,3166,472831,98783,185087,475373]
+          result = {
+              'schema':'ades-pr64-velographx-ny-representability-v2',
+              'pr59_trace_update_edge_ids': update_ids,
+              'graphs':{}
+          }
+          all_updates_unambiguous = True
           for name, sha in files:
               path = pathlib.Path('harness/benchmarks/data')/name
-              seen = {}
-              duplicates = []
-              arcs = 0
+              by_pair = {}
+              edge_records = []
               with gzip.open(path,'rt',encoding='ascii') as f:
                   for line in f:
                       if not line.startswith('a '):
                           continue
                       _, us, vs, ws = line.split()
+                      edge_id = len(edge_records)
                       u, v, w = int(us), int(vs), int(ws)
-                      arcs += 1
-                      key = (u,v)
-                      if key in seen:
-                          duplicates.append({'u':u,'v':v,'first_weight':seen[key],'later_weight':w})
-                      else:
-                          seen[key] = w
-              simple = not duplicates
-              all_simple = all_simple and simple
+                      edge_records.append((u,v,w))
+                      by_pair.setdefault((u,v),[]).append(edge_id)
+              duplicate_groups = {pair: ids for pair, ids in by_pair.items() if len(ids) > 1}
+              touched = []
+              for edge_id in update_ids:
+                  u,v,w = edge_records[edge_id]
+                  group = by_pair[(u,v)]
+                  if len(group) > 1:
+                      touched.append({'edge_id':edge_id,'u':u,'v':v,'weight':w,'same_endpoint_edge_ids':group})
+              unambiguous = not touched
+              all_updates_unambiguous = all_updates_unambiguous and unambiguous
               result['graphs'][name] = {
-                  'sha256': sha, 'arc_count': arcs,
-                  'unique_endpoint_pairs': len(seen),
-                  'duplicate_endpoint_arc_count': len(duplicates),
-                  'simple_digraph_representable': simple,
-                  'first_duplicate_examples': duplicates[:10],
+                  'sha256':sha,
+                  'arc_count':len(edge_records),
+                  'unique_endpoint_pairs':len(by_pair),
+                  'duplicate_endpoint_group_count':len(duplicate_groups),
+                  'duplicate_endpoint_extra_arc_count':sum(len(ids)-1 for ids in duplicate_groups.values()),
+                  'whole_graph_simple_digraph_representable':not duplicate_groups,
+                  'pr59_updated_edges_with_duplicate_endpoints':touched,
+                  'pr59_update_edge_identity_unambiguous':unambiguous,
               }
-          result['all_pr59_ny_graphs_simple_digraph_representable'] = all_simple
+          result['all_pr59_trace_updates_endpoint_unambiguous'] = all_updates_unambiguous
           pathlib.Path('harness/results/pr64-velographx/ny-representability.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
           print(json.dumps(result,indent=2,sort_keys=True))
           PY
