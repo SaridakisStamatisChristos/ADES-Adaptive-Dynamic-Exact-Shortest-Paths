@@ -1,0 +1,136 @@
+name: ADES PR69 GraphBolt GDB localization diagnostic
+
+on:
+  push:
+    branches: [pr69-graphbolt-weighted-sssp-qualification]
+    paths:
+      - '.github/workflows/pr69-graphbolt-gdb-diagnostic.yml'
+      - 'tools/run_pr69_graphbolt_qualification.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GRAPHBOLT_SHA: 7c2792cc77d59b9722288ded8c3c62f6a9a87fc7
+  MIMALLOC_SHA: 04f1c3b1e23677ce03bd16137e73089abd552175
+
+jobs:
+  localize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact diagnostic head
+        uses: actions/checkout@v4
+
+      - name: Install diagnostic-only GDB
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends gdb
+          gdb --version | head -1 | tee gdb-version.txt
+
+      - name: Fetch pinned GraphBolt and mimalloc
+        run: |
+          set -euo pipefail
+          git clone https://github.com/pdclab/graphbolt.git external/graphbolt
+          git -C external/graphbolt checkout --detach "$GRAPHBOLT_SHA"
+          test "$(git -C external/graphbolt rev-parse HEAD)" = "$GRAPHBOLT_SHA"
+          test -z "$(git -C external/graphbolt status --porcelain)"
+          git clone https://github.com/microsoft/mimalloc.git external/mimalloc
+          git -C external/mimalloc checkout --detach "$MIMALLOC_SHA"
+          test "$(git -C external/mimalloc rev-parse HEAD)" = "$MIMALLOC_SHA"
+          cmake -S external/mimalloc -B external/mimalloc/out/release \
+            -DCMAKE_BUILD_TYPE=Release -DMI_BUILD_TESTS=OFF
+          cmake --build external/mimalloc/out/release --parallel 2
+          test -f external/mimalloc/out/release/libmimalloc.so
+
+      - name: Build exact current compatibility binary
+        run: |
+          set -euo pipefail
+          mkdir -p graphbolt-runtime evidence/pr69-gdb/case evidence/pr69-gdb/out
+          g++ -std=c++14 -O3 -g -DOPENMP -fopenmp -DEDGELONG -DEDGEDATA \
+            -include cstdint external/graphbolt/apps/SSSP.C -pthread \
+            -o graphbolt-runtime/graphbolt_sssp
+          test -x graphbolt-runtime/graphbolt_sssp
+          test -z "$(git -C external/graphbolt status --porcelain)"
+          sha256sum graphbolt-runtime/graphbolt_sssp > evidence/pr69-gdb/binary-sha256.txt
+
+      - name: Generate exact frozen first case
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          p = Path('tools/run_pr69_graphbolt_qualification.py')
+          spec = importlib.util.spec_from_file_location('pr69q', p)
+          m = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(m)
+          case = Path('evidence/pr69-gdb/case')
+          base = m.make_graph(1201)
+          repl = m.make_replacements(1201, base)
+          m.write_weighted_adjacency(case / 'initial.adj', base)
+          m.write_stream(case / 'stream.txt', repl)
+          assert len(base) == 320
+          assert len(repl) == 40
+          print('frozen_case_ready seed=1201 source=0 edges=320 replacements=40 batches=80')
+          PY
+          sha256sum evidence/pr69-gdb/case/initial.adj evidence/pr69-gdb/case/stream.txt \
+            > evidence/pr69-gdb/case-sha256.txt
+
+      - name: Capture live stack after five seconds
+        env:
+          LD_PRELOAD: ${{ github.workspace }}/external/mimalloc/out/release/libmimalloc.so
+          OMP_NUM_THREADS: '1'
+        run: |
+          set +e
+          exe="$PWD/graphbolt-runtime/graphbolt_sssp"
+          graph="$PWD/evidence/pr69-gdb/case/initial.adj"
+          stream="$PWD/evidence/pr69-gdb/case/stream.txt"
+          out="$PWD/evidence/pr69-gdb/out/out-"
+          cat > evidence/pr69-gdb/commands.gdb <<GDB
+          set pagination off
+          set confirm off
+          set target-async on
+          set environment OMP_NUM_THREADS 1
+          set environment LD_PRELOAD $LD_PRELOAD
+          run -source 0 -numberOfUpdateBatches 80 -nEdges 1 -fixedBatchSize -simple -enforceEdgeValidity -streamPath $stream -outputFile $out $graph &
+          shell sleep 5
+          interrupt
+          info threads
+          thread apply all bt full
+          kill
+          quit
+          GDB
+          timeout 30s gdb -q -batch -x evidence/pr69-gdb/commands.gdb "$exe" \
+            > evidence/pr69-gdb/backtrace.txt 2>&1
+          rc=$?
+          echo "$rc" > evidence/pr69-gdb/gdb-exit-code.txt
+          tail -n 260 evidence/pr69-gdb/backtrace.txt || true
+          exit 0
+
+      - name: Record diagnostic provenance
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "head_sha=${GITHUB_SHA}"
+            echo "graphbolt_sha=${GRAPHBOLT_SHA}"
+            echo "mimalloc_sha=${MIMALLOC_SHA}"
+            echo "build=-std=c++14 -O3 -g -DOPENMP -fopenmp -DEDGELONG -DEDGEDATA -include cstdint"
+            echo "omp_threads=1"
+            echo "diagnostic_only=true"
+            echo "semantic_gate_modified=false"
+            cat gdb-version.txt || true
+            g++ --version | head -1
+            uname -a
+          } > evidence/pr69-gdb/provenance.txt
+
+      - name: Upload localization evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr69-graphbolt-gdb-${{ github.sha }}
+          path: evidence/pr69-gdb
+          if-no-files-found: error
+          retention-days: 90
