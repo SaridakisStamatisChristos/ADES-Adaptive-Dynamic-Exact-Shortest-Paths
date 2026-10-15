@@ -1,0 +1,119 @@
+name: ADES PR62 fresh Boost.Graph holdout
+
+on:
+  push:
+    branches:
+      - pr62-ades-boost-fresh-holdout
+  pull_request:
+    paths:
+      - 'tools/oracle_from_trace.cpp'
+      - 'tools/run_pr62_fresh_holdout.py'
+      - '.github/workflows/pr62-ades-boost-fresh-holdout.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-frozen-candidate-and-harness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout holdout harness head
+        uses: actions/checkout@v4
+        with:
+          path: harness
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Checkout frozen candidate
+        uses: actions/checkout@v4
+        with:
+          path: candidate
+          ref: cf7cbc3ed7d9d37ad673a540485a1eee781d47fe
+      - name: Verify frozen candidate identity
+        run: test "$(git -C candidate rev-parse HEAD)" = 'cf7cbc3ed7d9d37ad673a540485a1eee781d47fe'
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake zlib1g-dev
+      - name: Verify candidate and holdout harness
+        run: |
+          cmake -S candidate -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+          python3 -m py_compile harness/tools/run_pr62_fresh_holdout.py
+          g++ -std=c++20 -O2 -DNDEBUG -I candidate/include \
+            harness/tools/oracle_from_trace.cpp build/libades.a -lz \
+            -o oracle_from_trace
+
+  fresh-holdout:
+    needs: verify-frozen-candidate-and-harness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout holdout harness head
+        uses: actions/checkout@v4
+        with:
+          path: harness
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Checkout frozen candidate
+        uses: actions/checkout@v4
+        with:
+          path: candidate
+          ref: cf7cbc3ed7d9d37ad673a540485a1eee781d47fe
+      - name: Verify frozen candidate identity
+        run: test "$(git -C candidate rev-parse HEAD)" = 'cf7cbc3ed7d9d37ad673a540485a1eee781d47fe'
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake curl bzip2 zlib1g-dev time
+      - name: Fetch and verify pinned Boost 1.92.0 source
+        run: |
+          curl --fail --location --retry 4 --retry-all-errors \
+            https://archives.boost.io/release/1.92.0/source/boost_1_92_0.tar.bz2 \
+            --output boost_1_92_0.tar.bz2
+          echo '5c1d40cb8e19adbf740a4ec2da35b3e58f3f5804b1dce44deb53df72193cbc6c  boost_1_92_0.tar.bz2' | sha256sum --check --strict
+          tar -xjf boost_1_92_0.tar.bz2
+      - name: Build frozen candidate and holdout tools
+        run: |
+          cmake -S candidate -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2 --target ades_workload_v2 ades_bench
+          g++ -std=c++20 -O2 -DNDEBUG -I candidate/include \
+            harness/tools/oracle_from_trace.cpp build/libades.a -lz \
+            -o oracle_from_trace
+          g++ -std=c++20 -O2 -DNDEBUG -I candidate/include \
+            candidate/benchmarks/ades_direct.cpp build/libades.a -lz \
+            -o ades_direct
+          g++ -std=c++20 -O2 -DNDEBUG -I boost_1_92_0 -I candidate/include \
+            candidate/benchmarks/boost_graph_direct.cpp build/libades.a -lz \
+            -o boost_graph_direct
+      - name: Execute preregistered 24-cell fresh holdout
+        run: |
+          set -euo pipefail
+          python3 harness/tools/run_pr62_fresh_holdout.py \
+            --candidate-root candidate \
+            --workload-generator ./build/ades_workload_v2 \
+            --oracle-builder ./oracle_from_trace \
+            --ades ./ades_direct \
+            --boost ./boost_graph_direct \
+            --out harness/results/pr62-fresh-holdout \
+            | tee harness/results/pr62-fresh-holdout.stdout.txt
+          cat harness/results/pr62-fresh-holdout/holdout_summary.json
+      - name: Record environment and harness identity
+        env:
+          HARNESS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          {
+            echo "frozen_candidate_sha=cf7cbc3ed7d9d37ad673a540485a1eee781d47fe"
+            echo "holdout_harness_sha=$HARNESS_SHA"
+            echo "runner_os=${RUNNER_OS:-unknown}"
+            echo "runner_arch=${RUNNER_ARCH:-unknown}"
+            sha256sum harness/tools/run_pr62_fresh_holdout.py
+            uname -a
+            lscpu
+          } > harness/results/pr62-fresh-holdout/environment.txt
+      - name: Upload full holdout evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr62-fresh-holdout-${{ github.event.pull_request.head.sha || github.sha }}
+          path: harness/results/pr62-fresh-holdout/
+          if-no-files-found: error
+          retention-days: 90
