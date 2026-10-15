@@ -1,0 +1,65 @@
+name: ADES PR64 VeloGraphX weighted SSSP qualification
+
+on:
+  push:
+    branches: [pr64-velographx-qualification]
+  pull_request:
+    paths:
+      - 'benchmarks/velographx_weighted_sssp_probe.cpp'
+      - 'tools/run_pr64_velographx_qualification.py'
+      - '.github/workflows/pr64-velographx-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  semantic-qualification:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout qualification harness
+        uses: actions/checkout@v4
+        with:
+          path: harness
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Fetch exact VeloGraphX paper snapshot
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout https://github.com/sauravsingla/VeloGraphX.git external/velographx
+          git -C external/velographx fetch --depth=1 origin 2aa84ce81a180487239c661b65639e5100136075
+          git -C external/velographx checkout --detach 2aa84ce81a180487239c661b65639e5100136075
+          test "$(git -C external/velographx rev-parse HEAD)" = '2aa84ce81a180487239c661b65639e5100136075'
+          test -z "$(git -C external/velographx status --porcelain)"
+      - name: Build probe against unmodified upstream headers
+        run: |
+          g++ -std=c++20 -O2 -Wall -Wextra -pedantic \
+            -I external/velographx/include \
+            harness/benchmarks/velographx_weighted_sssp_probe.cpp \
+            -o velographx_probe
+          python3 -m py_compile harness/tools/run_pr64_velographx_qualification.py
+      - name: Execute isolated semantic cases
+        run: |
+          mkdir -p harness/results/pr64-velographx
+          python3 harness/tools/run_pr64_velographx_qualification.py \
+            --probe ./velographx_probe \
+            --out harness/results/pr64-velographx \
+            --timeout 15 \
+            | tee harness/results/pr64-velographx.stdout.txt
+      - name: Record source identities
+        env:
+          HARNESS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          {
+            echo "upstream_commit=$(git -C external/velographx rev-parse HEAD)"
+            echo "harness_commit=$HARNESS_SHA"
+            sha256sum external/velographx/LICENSE
+            sha256sum external/velographx/include/velographx/incremental/weighted_sssp.hpp
+            sha256sum external/velographx/include/velographx/storage/weighted_dynamic_graph.hpp
+          } > harness/results/pr64-velographx/source-identities.txt
+      - name: Upload qualification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr64-velographx-${{ github.event.pull_request.head.sha || github.sha }}
+          path: harness/results/pr64-velographx/
+          if-no-files-found: error
+          retention-days: 90
