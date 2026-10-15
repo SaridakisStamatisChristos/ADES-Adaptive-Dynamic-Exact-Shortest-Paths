@@ -1,0 +1,85 @@
+name: ADES PR67 NetworKit DynDijkstra semantic qualification
+
+on:
+  push:
+    branches: [pr67-networkit-dyndijkstra-qualification]
+  pull_request:
+    paths:
+      - 'tools/run_pr67_networkit_qualification.py'
+      - '.github/workflows/pr67-networkit-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify-networkit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout PR67 qualification harness
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned NetworKit release
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install 'networkit==11.2.2'
+          python - <<'PY'
+          import networkit as nk
+          assert nk.__version__ == '11.2.2', nk.__version__
+          print('NetworKit', nk.__version__)
+          PY
+
+      - name: Compile-check qualification harness
+        run: python -m py_compile tools/run_pr67_networkit_qualification.py
+
+      - name: Execute adversarial semantic qualification
+        run: |
+          set -euo pipefail
+          python tools/run_pr67_networkit_qualification.py \
+            --output evidence/pr67/networkit_semantic_qualification.json
+
+      - name: Enforce preregistered qualification rule
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('evidence/pr67/networkit_semantic_qualification.json')
+          data = json.loads(p.read_text())
+          assert data['networkit_version'] == '11.2.2'
+          assert data['undirected']['all_exact'] is True
+          assert data['qualification'] == 'QUALIFIED_UNDIRECTED_FIXED_SOURCE_DYNAMIC_SSSP'
+          print('QUALIFICATION PASS')
+          print('undirected checks:', data['undirected']['checks'])
+          print('directed exact:', data['directed']['all_exact'])
+          if not data['directed']['all_exact']:
+              print('directed witness:', data['directed']['first_failure'])
+          PY
+
+      - name: Record environment
+        run: |
+          mkdir -p evidence/pr67
+          {
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+            echo "python=$(python --version 2>&1)"
+            echo "networkit=$(python -c 'import networkit as nk; print(nk.__version__)')"
+            echo "head_sha=${GITHUB_SHA}"
+            uname -a
+          } > evidence/pr67/environment.txt
+          python -m pip freeze > evidence/pr67/pip-freeze.txt
+
+      - name: Upload qualification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr67-networkit-qualification-${{ github.sha }}
+          path: evidence/pr67
+          if-no-files-found: error
+          retention-days: 90
