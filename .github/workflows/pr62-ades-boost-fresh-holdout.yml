@@ -33,14 +33,21 @@ jobs:
       - name: Install prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake zlib1g-dev
+          sudo apt-get install -y build-essential cmake curl bzip2 zlib1g-dev
+      - name: Fetch and verify pinned Boost 1.92.0 source
+        run: |
+          curl --fail --location --retry 4 --retry-all-errors \
+            https://archives.boost.io/release/1.92.0/source/boost_1_92_0.tar.bz2 \
+            --output boost_1_92_0.tar.bz2
+          echo '5c1d40cb8e19adbf740a4ec2da35b3e58f3f5804b1dce44deb53df72193cbc6c  boost_1_92_0.tar.bz2' | sha256sum --check --strict
+          tar -xjf boost_1_92_0.tar.bz2
       - name: Verify candidate and holdout harness
         run: |
           cmake -S candidate -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build --parallel 2
           ctest --test-dir build --output-on-failure
           python3 -m py_compile harness/tools/run_pr62_fresh_holdout.py
-          g++ -std=c++20 -O2 -DNDEBUG -I candidate/include \
+          g++ -std=c++20 -O2 -DNDEBUG -I boost_1_92_0 -I candidate/include \
             harness/tools/oracle_from_trace.cpp build/libades.a -lz \
             -o oracle_from_trace
 
@@ -76,7 +83,7 @@ jobs:
         run: |
           cmake -S candidate -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build --parallel 2 --target ades_workload_v2 ades_bench
-          g++ -std=c++20 -O2 -DNDEBUG -I candidate/include \
+          g++ -std=c++20 -O2 -DNDEBUG -I boost_1_92_0 -I candidate/include \
             harness/tools/oracle_from_trace.cpp build/libades.a -lz \
             -o oracle_from_trace
           g++ -std=c++20 -O2 -DNDEBUG -I candidate/include \
@@ -97,6 +104,11 @@ jobs:
             --out harness/results/pr62-fresh-holdout \
             | tee harness/results/pr62-fresh-holdout.stdout.txt
           cat harness/results/pr62-fresh-holdout/holdout_summary.json
+      - name: Verify independent oracle agreement evidence
+        run: |
+          set -euo pipefail
+          count="$(grep -R -l 'agreement=PASS' harness/results/pr62-fresh-holdout/cells/*/oracle.stdout.txt | wc -l)"
+          test "$count" -eq 24
       - name: Record environment and harness identity
         env:
           HARNESS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -104,9 +116,11 @@ jobs:
           {
             echo "frozen_candidate_sha=cf7cbc3ed7d9d37ad673a540485a1eee781d47fe"
             echo "holdout_harness_sha=$HARNESS_SHA"
+            echo "oracle_validation=ADES_fresh_Dijkstra_equals_Boost_Graph_1.92.0_Dijkstra_on_every_query"
             echo "runner_os=${RUNNER_OS:-unknown}"
             echo "runner_arch=${RUNNER_ARCH:-unknown}"
             sha256sum harness/tools/run_pr62_fresh_holdout.py
+            sha256sum harness/tools/oracle_from_trace.cpp
             uname -a
             lscpu
           } > harness/results/pr62-fresh-holdout/environment.txt
