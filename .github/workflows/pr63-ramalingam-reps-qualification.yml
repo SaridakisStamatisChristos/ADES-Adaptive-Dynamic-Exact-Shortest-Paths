@@ -1,0 +1,76 @@
+name: ADES PR63 Ramalingam-Reps qualification
+
+on:
+  push:
+    branches:
+      - pr63-ramalingam-reps-qualification
+  pull_request:
+    paths:
+      - 'benchmarks/ramalingam_reps_probe.c'
+      - 'tools/run_pr63_rr_qualification.py'
+      - '.github/workflows/pr63-ramalingam-reps-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  semantic-qualification:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout qualification harness
+        uses: actions/checkout@v4
+        with:
+          path: harness
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Fetch exact upstream Ramalingam-Reps implementation
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout https://github.com/felipe31/Ramalingam-Reps.git external/rr
+          git -C external/rr fetch --depth=1 origin 20aa865a52b67bd0ff402e2946e51541db0b5473
+          git -C external/rr checkout --detach 20aa865a52b67bd0ff402e2946e51541db0b5473
+          test "$(git -C external/rr rev-parse HEAD)" = '20aa865a52b67bd0ff402e2946e51541db0b5473'
+          git -C external/rr status --porcelain | tee upstream-status.txt
+          test ! -s upstream-status.txt
+      - name: Build probe against unmodified pinned upstream sources
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -O2 -Wall -Wextra \
+            -I external/rr/rr_bh_olsr \
+            harness/benchmarks/ramalingam_reps_probe.c \
+            external/rr/rr_bh_olsr/graph.c \
+            external/rr/rr_bh_olsr/heap.c \
+            external/rr/rr_bh_olsr/heap_olsr.c \
+            external/rr/rr_bh_olsr/rr.c \
+            -o rr_probe
+          python3 -m py_compile harness/tools/run_pr63_rr_qualification.py
+      - name: Execute isolated semantic cases
+        run: |
+          mkdir -p harness/results/pr63-ramalingam-reps
+          python3 harness/tools/run_pr63_rr_qualification.py \
+            --probe ./rr_probe \
+            --out harness/results/pr63-ramalingam-reps \
+            --timeout 10 \
+            | tee harness/results/pr63-ramalingam-reps.stdout.txt
+      - name: Record source identities
+        env:
+          HARNESS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          {
+            echo "upstream_commit=$(git -C external/rr rev-parse HEAD)"
+            echo "harness_commit=$HARNESS_SHA"
+            sha256sum external/rr/LICENSE.md
+            sha256sum external/rr/rr_bh_olsr/graph.c
+            sha256sum external/rr/rr_bh_olsr/graph.h
+            sha256sum external/rr/rr_bh_olsr/rr.c
+            sha256sum external/rr/rr_bh_olsr/rr.h
+            sha256sum external/rr/rr_bh_olsr/heap.c
+            sha256sum external/rr/rr_bh_olsr/heap_olsr.c
+          } > harness/results/pr63-ramalingam-reps/source-identities.txt
+      - name: Upload qualification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr63-ramalingam-reps-${{ github.event.pull_request.head.sha || github.sha }}
+          path: harness/results/pr63-ramalingam-reps/
+          if-no-files-found: error
+          retention-days: 90
