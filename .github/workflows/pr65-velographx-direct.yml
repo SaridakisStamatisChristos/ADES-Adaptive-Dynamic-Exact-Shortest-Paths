@@ -1,0 +1,180 @@
+name: ADES PR65 VeloGraphX DIRECT adapter and head-to-head
+
+on:
+  push:
+    branches: [pr65-velographx-direct-adapter]
+  pull_request:
+    paths:
+      - 'benchmarks/velographx_direct.cpp'
+      - 'tools/run_pr65_velographx_head_to_head.py'
+      - '.github/workflows/pr65-velographx-direct.yml'
+
+permissions:
+  contents: read
+
+env:
+  FROZEN_ADES_SHA: cf7cbc3ed7d9d37ad673a540485a1eee781d47fe
+  VELOGRAPHX_SHA: 2aa84ce81a180487239c661b65639e5100136075
+  BUDGET_BYTES: '67108864'
+
+jobs:
+  qualify-and-compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout PR65 harness
+        uses: actions/checkout@v4
+        with:
+          path: harness
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Checkout frozen ADES candidate
+        uses: actions/checkout@v4
+        with:
+          path: candidate
+          ref: ${{ env.FROZEN_ADES_SHA }}
+      - name: Verify exact identities
+        env:
+          HARNESS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git -C harness rev-parse HEAD)" = "$HARNESS_SHA"
+          test "$(git -C candidate rev-parse HEAD)" = "$FROZEN_ADES_SHA"
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake zlib1g-dev time
+      - name: Fetch exact unmodified VeloGraphX snapshot
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout https://github.com/sauravsingla/VeloGraphX.git external/velographx
+          git -C external/velographx fetch --depth=1 origin "$VELOGRAPHX_SHA"
+          git -C external/velographx checkout --detach "$VELOGRAPHX_SHA"
+          test "$(git -C external/velographx rev-parse HEAD)" = "$VELOGRAPHX_SHA"
+          test -z "$(git -C external/velographx status --porcelain)"
+      - name: Build frozen ADES and VeloGraphX adapter
+        run: |
+          set -euo pipefail
+          cmake -S candidate -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2 --target ades_bench
+          g++ -std=c++20 -O2 -DNDEBUG -Wall -Wextra -pedantic \
+            -I candidate/include \
+            candidate/benchmarks/ades_direct.cpp \
+            build/libades.a -lz -o ades_direct
+          g++ -std=c++20 -O2 -DNDEBUG -Wall -Wextra -pedantic \
+            -I external/velographx/include -I candidate/include \
+            harness/benchmarks/velographx_direct.cpp \
+            build/libades.a -lz -o velographx_direct
+          python3 -m py_compile harness/tools/run_pr65_velographx_head_to_head.py
+      - name: Targeted parallel-edge identity and dynamic-update falsifier
+        run: |
+          set -euo pipefail
+          mkdir -p harness/results/pr65-velographx/parallel-self-test
+          python3 - <<'PY'
+          import gzip, pathlib
+          out=pathlib.Path('harness/results/pr65-velographx/parallel-self-test')
+          graph='''c parallel-edge adapter falsifier\np sp 4 5\na 1 2 5\na 1 2 1\na 2 3 2\na 1 3 10\na 3 4 1\n'''
+          with gzip.open(out/'graph.gr.gz','wt',encoding='ascii',newline='') as f: f.write(graph)
+          (out/'trace.txt').write_text('QUERY 0 3\nUPDATE 1 1 8\nQUERY 0 3\nUPDATE 0 5 0\nQUERY 0 3\n',encoding='ascii')
+          PY
+          trace_sha="$(sha256sum harness/results/pr65-velographx/parallel-self-test/trace.txt | awk '{print $1}')"
+          cat > harness/results/pr65-velographx/parallel-self-test/oracle.txt <<EOF
+          ADES_ORACLE_V2 5 3 $trace_sha
+          QUERY 0 3 4
+          UPDATE 1 1 8
+          QUERY 0 3 8
+          UPDATE 0 5 0
+          QUERY 0 3 3
+          EOF
+          ADES_PERSISTENT_STATE_BUDGET_BYTES="$BUDGET_BYTES" \
+            ./velographx_direct \
+              harness/results/pr65-velographx/parallel-self-test/graph.gr.gz \
+              harness/results/pr65-velographx/parallel-self-test/trace.txt \
+              harness/results/pr65-velographx/parallel-self-test/oracle.txt \
+              harness/results/pr65-velographx/parallel-self-test/report.json
+          python3 - <<'PY'
+          import json
+          p='harness/results/pr65-velographx/parallel-self-test/report.json'
+          r=json.load(open(p))
+          assert r['exact_answers'] is True
+          assert r['parallel_endpoint_group_count'] == 1
+          assert r['conflicting_initial_parallel_weight_group_count'] == 1
+          assert r['endpoint_minimum_updates_propagated'] == 2
+          assert r['cache_misses'] == 1
+          assert r['cache_hits'] == 2
+          assert r['upstream_algorithm_modified'] is False
+          print(json.dumps(r,indent=2,sort_keys=True))
+          PY
+      - name: Execute exact PR59 NY traces against ADES_ORACLE_V2
+        run: |
+          set -euo pipefail
+          root=harness/results/pr65-velographx/pr59-replay
+          mkdir -p "$root"
+          for graph_name in USA-road-d.NY.gr.gz USA-road-t.NY.gr.gz; do
+            case "$graph_name" in
+              USA-road-d.NY.gr.gz)
+                expected_graph_sha='7b2446c7ffe6179efbc42af6812448e8cb782f12968ca2bb1d50d979343056d4'
+                expected_trace_sha='f03efd5b0f410dedbf2e991fe73dbe45ca525e66dd1526ca48d059ef0b175a21'
+                ;;
+              USA-road-t.NY.gr.gz)
+                expected_graph_sha='de902573142dbf12c42b065d9a6a679e4794372eb91d2748ee78089720377156'
+                expected_trace_sha='c04200d8cfa321635dfe6c2c72af802c844dbfd927978e5c2bdf4463d87bfe25'
+                ;;
+              *) exit 2 ;;
+            esac
+            graph="candidate/benchmarks/data/$graph_name"
+            test "$(sha256sum "$graph" | awk '{print $1}')" = "$expected_graph_sha"
+            tag="${graph_name%.gr.gz}"
+            dir="$root/$tag"
+            mkdir -p "$dir"
+            ADES_TRACE_FILE="$dir/trace.txt" \
+              ./build/ades_bench "$graph" ORACLE 120 7 0 mixed work "$dir/oracle.txt" \
+              > "$dir/oracle_row.csv"
+            python3 - "$dir/oracle_row.csv" "$expected_trace_sha" <<'PY'
+          import csv, sys
+          row=next(csv.reader(open(sys.argv[1],newline='')))
+          if len(row)<11 or row[0]!='ORACLE': raise SystemExit('bad ORACLE row')
+          if row[5]!=sys.argv[2]: raise SystemExit(f'trace SHA mismatch: {row[5]} != {sys.argv[2]}')
+          if tuple(map(int,row[6:11])) not in ((120,91,29,1,28),(120,91,29,0,29)):
+              raise SystemExit('unexpected PR59 operation counts')
+          PY
+            python3 harness/tools/run_pr65_velographx_head_to_head.py \
+              --graph "$graph" \
+              --trace "$dir/trace.txt" \
+              --oracle "$dir/oracle.txt" \
+              --ades ./ades_direct \
+              --velo ./velographx_direct \
+              --out "$dir/matched" \
+              --repetitions 2 \
+              --budget-bytes "$BUDGET_BYTES" \
+              --candidate-commit "$FROZEN_ADES_SHA" \
+              --expected-graph-sha "$expected_graph_sha" \
+              --expected-trace-sha "$expected_trace_sha"
+            cat "$dir/matched/summary.json"
+          done
+      - name: Record environment and source identities
+        env:
+          HARNESS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          root=harness/results/pr65-velographx
+          {
+            echo "frozen_ades_sha=$FROZEN_ADES_SHA"
+            echo "harness_sha=$HARNESS_SHA"
+            echo "velographx_sha=$(git -C external/velographx rev-parse HEAD)"
+            echo "runner_os=${RUNNER_OS:-unknown}"
+            echo "runner_arch=${RUNNER_ARCH:-unknown}"
+            sha256sum external/velographx/LICENSE
+            sha256sum external/velographx/include/velographx/incremental/weighted_sssp.hpp
+            sha256sum external/velographx/include/velographx/storage/weighted_dynamic_graph.hpp
+            sha256sum harness/benchmarks/velographx_direct.cpp
+            sha256sum harness/tools/run_pr65_velographx_head_to_head.py
+            uname -a
+            lscpu
+          } > "$root/environment.txt"
+      - name: Upload complete PR65 evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr65-velographx-${{ github.event.pull_request.head.sha || github.sha }}
+          path: harness/results/pr65-velographx/
+          if-no-files-found: error
+          retention-days: 90
