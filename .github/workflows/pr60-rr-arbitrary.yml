@@ -1,0 +1,112 @@
+name: ADES PR60 Ramalingam-Reps arbitrary-source preflight
+
+on:
+  pull_request:
+    paths:
+      - 'tools/probe_rr_arbitrary_trace.cpp'
+      - '.github/workflows/pr60-rr-arbitrary.yml'
+  push:
+    branches:
+      - pr60-rr-semantic-preflight
+
+permissions:
+  contents: read
+
+jobs:
+  arbitrary-source-ny:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout ADES harness
+        uses: actions/checkout@v4
+        with:
+          path: candidate
+
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake zlib1g-dev gzip
+
+      - name: Fetch pinned external Ramalingam-Reps implementation
+        run: |
+          set -euo pipefail
+          mkdir rr-src
+          cd rr-src
+          git init
+          git remote add origin https://github.com/felipe31/Ramalingam-Reps.git
+          git -c protocol.version=2 fetch --depth=1 origin 20aa865a52b67bd0ff402e2946e51541db0b5473
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "20aa865a52b67bd0ff402e2946e51541db0b5473"
+          test -z "$(git status --porcelain)"
+
+      - name: Build trace generator and arbitrary-source adapter
+        run: |
+          set -euo pipefail
+          cmake -S candidate -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target ades_bench --parallel 2
+          gcc -std=c11 -O2 -DNDEBUG -I rr-src/rr_binary_heap -c rr-src/rr_binary_heap/heap.c -o heap.o
+          gcc -std=c11 -O2 -DNDEBUG -I rr-src/rr_binary_heap -c rr-src/rr_binary_heap/graph.c -o graph.o
+          gcc -std=c11 -O2 -DNDEBUG -I rr-src/rr_binary_heap -c rr-src/rr_binary_heap/rr.c -o rr.o
+          g++ -std=c++20 -O2 -DNDEBUG -I rr-src/rr_binary_heap \
+            candidate/tools/probe_rr_arbitrary_trace.cpp heap.o graph.o rr.o \
+            -o probe_rr_arbitrary_trace
+          test -z "$(git -C rr-src status --porcelain)"
+
+      - name: Execute full canonical arbitrary-source trace
+        run: |
+          set -euo pipefail
+          root=candidate/results/pr60-rr-arbitrary
+          mkdir -p "$root"
+          graph_gz=candidate/benchmarks/data/USA-road-d.NY.gr.gz
+          graph_plain="$root/graph.gr"
+          gzip -dc "$graph_gz" > "$graph_plain"
+
+          ADES_TRACE_FILE="$root/trace.txt" \
+            ./build/ades_bench "$graph_gz" ORACLE 120 7 0 mixed work "$root/oracle.txt" \
+            > "$root/oracle_row.csv"
+
+          set +e
+          timeout --signal=TERM --kill-after=10s 420s \
+            ./probe_rr_arbitrary_trace "$graph_plain" "$root/trace.txt" "$root/report.json" \
+            > "$root/stdout.txt" 2> "$root/stderr.txt"
+          code=$?
+          set -e
+          printf '%s\n' "$code" > "$root/exit_code.txt"
+          cat "$root/stderr.txt"
+          test "$code" -eq 0
+          python3 -m json.tool "$root/report.json"
+
+          python3 - "$root/report.json" <<'PY'
+          import json, sys
+          r = json.load(open(sys.argv[1]))
+          assert r['external_source_modified'] is False
+          assert r['future_knowledge_used'] is False
+          assert r['operation_count'] == 120
+          assert r['query_count'] == 91
+          assert r['update_count'] == 29
+          assert r['source_rebuild_count'] > 1
+          assert r['full_state_distance_comparisons'] >= r['query_count'] * r['vertices']
+          assert r['path_int_domain_compatible'] is True
+          assert r['exact_full_state'] is True
+          assert r['mismatch_count'] == 0
+          assert r['persistent_budget_status'] == 'NOT_YET_QUALIFIED_ADAPTER_STATE_PENDING'
+          print(json.dumps({
+              'arbitrary_source_semantics': 'PASS',
+              'queries': r['query_count'],
+              'rebuilds': r['source_rebuild_count'],
+              'comparisons': r['full_state_distance_comparisons'],
+              'algorithm_ns': r['algorithm_ns'],
+              'rr_core_bytes_conservative': r['rr_core_persistent_state_bytes_conservative'],
+          }, indent=2))
+          PY
+          rm -f "$graph_plain"
+          test -z "$(git -C rr-src status --porcelain)"
+
+      - name: Upload arbitrary-source evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr60-rr-arbitrary-${{ github.sha }}
+          path: candidate/results/pr60-rr-arbitrary/
+          if-no-files-found: error
+          retention-days: 90
