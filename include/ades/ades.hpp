@@ -48,7 +48,6 @@ const char* scientific_ablation_name(ScientificAblation profile) noexcept;
 struct Stats {
  std::uint64_t cold_queries=0,resident_queries=0,promotions=0,evictions=0,cooldown_blocks=0,rebuilds=0,
  admission_rejections=0,filtered_updates=0,decrease_repairs=0,increase_repairs=0,repair_aborts=0,
- witness_rescues=0,
  memory_budget_rejections=0,memory_metadata_prunes=0,
  economic_candidates=0,economic_rejections=0,fused_promotions=0,
  accounted_algorithm_state_bytes=0,peak_accounted_algorithm_state_bytes=0,persistent_state_budget_bytes=0;
