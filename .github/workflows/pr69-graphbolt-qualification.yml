@@ -63,7 +63,10 @@ jobs:
               g++ -std=c++14 -O3 -g -DEDGELONG -DEDGEDATA \
                   SSSP.C -pthread -o /out/graphbolt_sssp
             '
-          chmod +x graphbolt-runtime/graphbolt_sssp
+          # The container-created binary is already executable.  Do not chmod
+          # it on the host: Docker creates the mounted output as root and the
+          # hosted runner cannot change its mode, which caused preflight #2.
+          test -x graphbolt-runtime/graphbolt_sssp
           ldd graphbolt-runtime/graphbolt_sssp | tee graphbolt-ldd.txt
           # This build is SEMANTIC-ONLY.  It is not admissible for performance:
           # a performance comparison must reproduce a defensible upstream
@@ -105,7 +108,8 @@ jobs:
             echo "semantic_build_image=gcc:8"
             echo "semantic_build_parallel_mode=upstream serial fallback (CILK/CILKP/OPENMP undefined)"
             echo "semantic_build_allocator=system/default (mimalloc intentionally omitted; semantic-only gate)"
-            echo "first_preflight_failure=legacy Cilk headers absent from stock gcc:8 image; no benchmark execution occurred"
+            echo "preflight_1=legacy Cilk headers absent from stock gcc:8 image; no benchmark execution occurred"
+            echo "preflight_2=unmodified serial build succeeded; host chmod of root-owned Docker output failed before execution"
             python3 --version
             docker --version
             uname -a
