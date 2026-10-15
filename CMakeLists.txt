@@ -43,6 +43,10 @@ add_executable(ades_pr55_radix_tests tests/pr55_radix.cpp)
 target_link_libraries(ades_pr55_radix_tests PRIVATE ades)
 add_test(NAME ades_pr55_radix_tests COMMAND ades_pr55_radix_tests)
 
+add_executable(ades_pr57_witness_rescue_tests tests/pr57_witness_rescue.cpp)
+target_link_libraries(ades_pr57_witness_rescue_tests PRIVATE ades)
+add_test(NAME ades_pr57_witness_rescue_tests COMMAND ades_pr57_witness_rescue_tests)
+
 add_executable(ades_bench benchmarks/runner.cpp)
 target_link_libraries(ades_bench PRIVATE ades)
 
@@ -66,3 +70,6 @@ target_link_libraries(ades_workload_v2 PRIVATE ades)
 
 add_executable(ades_pilot_profile benchmarks/pilot_profile.cpp)
 target_link_libraries(ades_pilot_profile PRIVATE ades)
+
+add_executable(ades_pr57_witness_profile benchmarks/pr57_witness_profile.cpp)
+target_link_libraries(ades_pr57_witness_profile PRIVATE ades)
