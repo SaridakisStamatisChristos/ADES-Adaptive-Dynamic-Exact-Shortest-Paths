@@ -1,0 +1,160 @@
+name: ADES PR60 matched ADES vs Boost.Graph head-to-head
+
+on:
+  push:
+    branches:
+      - pr60-ades-boost-matched-head-to-head
+  pull_request:
+    paths:
+      - 'include/ades/dynamic_repair.hpp'
+      - 'src/dynamic_repair.cpp'
+      - 'tests/pr57_witness_rescue.cpp'
+      - 'benchmarks/ades_direct.cpp'
+      - 'benchmarks/boost_graph_direct.cpp'
+      - 'tools/run_pr60_matched_head_to_head.py'
+      - '.github/workflows/pr60-ades-boost-matched-head-to-head.yml'
+      - 'CMakeLists.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-combined-candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v4
+        with:
+          path: candidate
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify checkout identity
+        env:
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake zlib1g-dev
+      - name: Build complete candidate and run correctness suite
+        run: |
+          cmake -S candidate -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+          python3 -m py_compile candidate/tools/run_pr60_matched_head_to_head.py
+
+  matched-head-to-head:
+    needs: verify-combined-candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v4
+        with:
+          path: candidate
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify checkout identity
+        env:
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake curl bzip2 zlib1g-dev time
+      - name: Fetch and verify pinned Boost 1.92.0 source
+        run: |
+          curl --fail --location --retry 4 --retry-all-errors \
+            https://archives.boost.io/release/1.92.0/source/boost_1_92_0.tar.bz2 \
+            --output boost_1_92_0.tar.bz2
+          echo '5c1d40cb8e19adbf740a4ec2da35b3e58f3f5804b1dce44deb53df72193cbc6c  boost_1_92_0.tar.bz2' | sha256sum --check --strict
+          tar -xjf boost_1_92_0.tar.bz2
+      - name: Build oracle generator and both isolated adapters
+        run: |
+          cmake -S candidate -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2 --target ades_bench
+          g++ -std=c++20 -O2 -DNDEBUG \
+            -I candidate/include \
+            candidate/benchmarks/ades_direct.cpp \
+            build/libades.a -lz -o ades_direct
+          g++ -std=c++20 -O2 -DNDEBUG \
+            -I boost_1_92_0 -I candidate/include \
+            candidate/benchmarks/boost_graph_direct.cpp \
+            build/libades.a -lz -o boost_graph_direct
+      - name: Execute exact PR59 NY traces in order-balanced matched pairs
+        env:
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
+          root=candidate/results/pr60-ades-boost-matched
+          mkdir -p "$root"
+
+          for graph_name in USA-road-d.NY.gr.gz USA-road-t.NY.gr.gz; do
+            case "$graph_name" in
+              USA-road-d.NY.gr.gz)
+                expected_graph_sha='7b2446c7ffe6179efbc42af6812448e8cb782f12968ca2bb1d50d979343056d4'
+                expected_trace_sha='f03efd5b0f410dedbf2e991fe73dbe45ca525e66dd1526ca48d059ef0b175a21'
+                ;;
+              USA-road-t.NY.gr.gz)
+                expected_graph_sha='de902573142dbf12c42b065d9a6a679e4794372eb91d2748ee78089720377156'
+                expected_trace_sha='c04200d8cfa321635dfe6c2c72af802c844dbfd927978e5c2bdf4463d87bfe25'
+                ;;
+              *) exit 2 ;;
+            esac
+
+            graph="candidate/benchmarks/data/$graph_name"
+            actual_graph_sha="$(sha256sum "$graph" | awk '{print $1}')"
+            test "$actual_graph_sha" = "$expected_graph_sha"
+
+            tag="${graph_name%.gr.gz}"
+            dir="$root/$tag"
+            mkdir -p "$dir"
+
+            ADES_TRACE_FILE="$dir/trace.txt" \
+              ./build/ades_bench "$graph" ORACLE 120 7 0 mixed work "$dir/oracle.txt" \
+              > "$dir/oracle_row.csv"
+
+            python3 - "$dir/oracle_row.csv" "$expected_trace_sha" <<'PY'
+          import csv, sys
+          row = next(csv.reader(open(sys.argv[1], newline='')))
+          if len(row) < 11 or row[0] != 'ORACLE':
+              raise SystemExit('bad ORACLE row')
+          if row[5] != sys.argv[2]:
+              raise SystemExit(f'trace SHA mismatch: {row[5]} != {sys.argv[2]}')
+          if tuple(map(int, row[6:11])) not in ((120, 91, 29, 1, 28), (120, 91, 29, 0, 29)):
+              raise SystemExit('unexpected PR59 operation counts')
+          PY
+
+            python3 candidate/tools/run_pr60_matched_head_to_head.py \
+              --graph "$graph" \
+              --trace "$dir/trace.txt" \
+              --oracle "$dir/oracle.txt" \
+              --ades ./ades_direct \
+              --boost ./boost_graph_direct \
+              --out "$dir/matched" \
+              --repetitions 6 \
+              --budget-bytes 67108864 \
+              --candidate-commit "$CANDIDATE_SHA" \
+              --expected-graph-sha "$expected_graph_sha" \
+              --expected-trace-sha "$expected_trace_sha"
+          done
+
+          {
+            echo "candidate_head_sha=$CANDIDATE_SHA"
+            echo "checked_out_sha=$(git -C candidate rev-parse HEAD)"
+            echo "github_event_sha=${GITHUB_SHA:-unknown}"
+            echo "runner_os=${RUNNER_OS:-unknown}"
+            echo "runner_arch=${RUNNER_ARCH:-unknown}"
+            uname -a
+            lscpu
+          } > "$root/environment.txt"
+
+          cat "$root/USA-road-d.NY/matched/summary.json"
+          cat "$root/USA-road-t.NY/matched/summary.json"
+      - name: Upload raw matched evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr60-matched-head-to-head-${{ github.event.pull_request.head.sha || github.sha }}
+          path: candidate/results/pr60-ades-boost-matched/
+          if-no-files-found: error
+          retention-days: 90
