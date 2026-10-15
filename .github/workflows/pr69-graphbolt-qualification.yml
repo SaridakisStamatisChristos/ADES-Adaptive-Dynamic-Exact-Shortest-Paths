@@ -39,9 +39,10 @@ jobs:
             external/graphbolt/apps/SSSP_edgeData.h \
             external/graphbolt/core/graphBolt/KickStarterEngine.h \
             external/graphbolt/core/graphBolt/ingestor.h \
+            external/graphbolt/core/common/parallel.h \
             > graphbolt-source-sha256.txt
 
-      - name: Build unmodified weighted SSSP with legacy Cilk Plus toolchain
+      - name: Build unmodified weighted SSSP through upstream serial fallback
         run: |
           set -euo pipefail
           mkdir -p graphbolt-runtime
@@ -52,24 +53,24 @@ jobs:
             -w /src/apps \
             gcc:8 bash -lc '
               set -euo pipefail
-              g++ -std=c++14 -fcilkplus -O3 -g -DCILK -DEDGELONG -DEDGEDATA \
-                  SSSP.C -lcilkrts -pthread -o /out/graphbolt_sssp
-              runtime="$(g++ -print-file-name=libcilkrts.so.5)"
-              test -f "$runtime"
-              cp -L "$runtime" /out/libcilkrts.so.5
+              # The first frozen PR69 preflight demonstrated that the stock
+              # gcc:8 image accepts -fcilkplus but does not ship the legacy
+              # <cilk/...> development headers.  Do not vendor or patch those
+              # headers after preregistration.  GraphBolt upstream itself
+              # provides an explicit serial branch in core/common/parallel.h
+              # whenever CILK/CILKP/OPENMP is not defined.  Use that upstream
+              # path for semantic qualification only; no source is changed.
+              g++ -std=c++14 -O3 -g -DEDGELONG -DEDGEDATA \
+                  SSSP.C -pthread -o /out/graphbolt_sssp
             '
           chmod +x graphbolt-runtime/graphbolt_sssp
-          LD_LIBRARY_PATH="$PWD/graphbolt-runtime" \
-            ldd graphbolt-runtime/graphbolt_sssp | tee graphbolt-ldd.txt
-          # Semantic qualification intentionally does not link GraphBolt's
-          # optional mimalloc recommendation. No source is modified. A later
-          # performance comparison must reproduce the upstream allocator and
-          # legacy toolchain rather than use this semantic-only build contract.
+          ldd graphbolt-runtime/graphbolt_sssp | tee graphbolt-ldd.txt
+          # This build is SEMANTIC-ONLY.  It is not admissible for performance:
+          # a performance comparison must reproduce a defensible upstream
+          # Cilk Plus + allocator execution substrate instead of using this
+          # serial fallback.
 
       - name: Execute exact semantic qualification
-        env:
-          LD_LIBRARY_PATH: ${{ github.workspace }}/graphbolt-runtime
-          CILK_NWORKERS: '1'
         run: |
           set -euo pipefail
           python3 tools/run_pr69_graphbolt_qualification.py \
@@ -102,7 +103,9 @@ jobs:
             echo "head_sha=${GITHUB_SHA}"
             echo "graphbolt_sha=$(git -C external/graphbolt rev-parse HEAD)"
             echo "semantic_build_image=gcc:8"
+            echo "semantic_build_parallel_mode=upstream serial fallback (CILK/CILKP/OPENMP undefined)"
             echo "semantic_build_allocator=system/default (mimalloc intentionally omitted; semantic-only gate)"
+            echo "first_preflight_failure=legacy Cilk headers absent from stock gcc:8 image; no benchmark execution occurred"
             python3 --version
             docker --version
             uname -a
