@@ -15,6 +15,14 @@ struct RepairMembershipScratch {
  }
 };
 thread_local RepairMembershipScratch repair_membership_scratch;
+
+void saturating_add_work(std::uint64_t& dst,std::size_t value){
+ const auto v=static_cast<std::uint64_t>(value);
+ if(v>std::numeric_limits<std::uint64_t>::max()-dst)
+  dst=std::numeric_limits<std::uint64_t>::max();
+ else
+  dst+=v;
+}
 }
 RepairResult repair_decrease(const Graph& g,SSSPState& s,std::uint32_t id){
  const auto&e=g.edge(id);if(s.dist[e.from]>=INF)return RepairResult::Filtered;
@@ -41,18 +49,39 @@ RepairResult repair_increase(const Graph& g,SSSPState& s,std::uint32_t id,const 
  while(!stack.empty()){
   auto u=stack.back();stack.pop_back();if(mark[u]==epoch)continue;mark[u]=epoch;nodes.push_back(u);
   if(discovered_vertices)*discovered_vertices=nodes.size();if(work)work->discovered_vertices=nodes.size();
-  if(nodes.size()>budget.max_discovery_vertices|| (work&&work->total()>budget.max_total_work))return RepairResult::RebuildRequired;
+  if(nodes.size()>budget.max_discovery_vertices)return RepairResult::RebuildRequired;
   for(auto child=s.first_child[u];child!=kNoIndex;child=s.next_sibling[child]){
    ++tree_work;if(work)work->tree_edges++;
-   if(tree_work>budget.max_discovery_tree_edges|| (work&&work->total()>budget.max_total_work))return RepairResult::RebuildRequired;
+   if(tree_work>budget.max_discovery_tree_edges)return RepairResult::RebuildRequired;
    stack.push_back(child);
   }
  }
+
+ // PR56 predictive preflight. Discovery above is read-only with respect to SSSP
+ // semantics. Before invalidating a single label, estimate the remaining local
+ // repair from the exact affected-region degree geometry: every affected vertex
+ // is visited once, every incoming boundary candidate is inspected, every
+ // affected outgoing adjacency is an upper bound on restricted scans, and one
+ // useful queue pop per affected vertex is the causal baseline. The learned
+ // controller converts rebuild-vs-repair timing into max_total_work. Rejection
+ // therefore happens before mutation; acceptance commits to finishing repair.
+ if(budget.max_total_work!=std::numeric_limits<std::uint64_t>::max()){
+  RepairWork planned{};
+  planned.discovered_vertices=static_cast<std::uint64_t>(nodes.size());
+  planned.tree_edges=static_cast<std::uint64_t>(tree_work);
+  planned.pq_pops=static_cast<std::uint64_t>(nodes.size());
+  for(auto v:nodes){
+   saturating_add_work(planned.boundary_scans,g.in(v).size());
+   saturating_add_work(planned.restricted_scans,g.out(v).size());
+  }
+  if(planned.total()>budget.max_total_work)return RepairResult::RebuildRequired;
+ }
+
  for(auto v:nodes){s.dist[v]=INF;set_parent(g,s,v,kNoIndex);}
  RadixQueue q;
  for(auto v:nodes){
   for(auto a:g.in(v)){
-   if(work){work->boundary_scans++;if(work->total()>budget.max_total_work)return RepairResult::RebuildRequired;}
+   if(work)work->boundary_scans++;
    if(mark[a.to]!=epoch&&s.dist[a.to]<INF){
     auto nd=sat_add(s.dist[a.to],g.edge(a.edge_id).weight);
     if(nd<s.dist[v]){s.dist[v]=nd;set_parent(g,s,v,a.edge_id);}
@@ -61,9 +90,9 @@ RepairResult repair_increase(const Graph& g,SSSPState& s,std::uint32_t id,const 
  }
  for(auto v:nodes)if(s.dist[v]<INF)q.push(s.dist[v],v);
  while(!q.empty()){
-  auto[du,u]=q.pop();if(work){work->pq_pops++;if(work->total()>budget.max_total_work)return RepairResult::RebuildRequired;}if(du!=s.dist[u])continue;
+  auto[du,u]=q.pop();if(work)work->pq_pops++;if(du!=s.dist[u])continue;
   for(auto a:g.out(u)){
-   if(work){work->restricted_scans++;if(work->total()>budget.max_total_work)return RepairResult::RebuildRequired;}
+   if(work)work->restricted_scans++;
    if(mark[a.to]==epoch){
     auto nd=sat_add(du,g.edge(a.edge_id).weight);
     if(nd<s.dist[a.to]){s.dist[a.to]=nd;set_parent(g,s,a.to,a.edge_id);q.push(nd,a.to);}

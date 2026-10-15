@@ -43,6 +43,10 @@ add_executable(ades_pr55_radix_tests tests/pr55_radix.cpp)
 target_link_libraries(ades_pr55_radix_tests PRIVATE ades)
 add_test(NAME ades_pr55_radix_tests COMMAND ades_pr55_radix_tests)
 
+add_executable(ades_pr56_repair_preflight_tests tests/pr56_repair_preflight.cpp)
+target_link_libraries(ades_pr56_repair_preflight_tests PRIVATE ades)
+add_test(NAME ades_pr56_repair_preflight_tests COMMAND ades_pr56_repair_preflight_tests)
+
 add_executable(ades_bench benchmarks/runner.cpp)
 target_link_libraries(ades_bench PRIVATE ades)
 
