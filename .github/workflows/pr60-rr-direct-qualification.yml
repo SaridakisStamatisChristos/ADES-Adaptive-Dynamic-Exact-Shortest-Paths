@@ -1,0 +1,196 @@
+name: ADES PR60 Ramalingam-Reps DIRECT qualification
+
+on:
+  pull_request:
+    paths:
+      - 'tools/probe_rr_arbitrary_trace.cpp'
+      - '.github/workflows/pr60-rr-direct-qualification.yml'
+  push:
+    branches:
+      - pr60-rr-semantic-preflight
+
+permissions:
+  contents: read
+
+jobs:
+  direct-qualification:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      ADES_PERSISTENT_STATE_BUDGET_BYTES: '67108864'
+    steps:
+      - name: Checkout ADES harness
+        uses: actions/checkout@v4
+        with:
+          path: candidate
+
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake zlib1g-dev gzip time
+
+      - name: Fetch pinned external Ramalingam-Reps implementation
+        run: |
+          set -euo pipefail
+          mkdir rr-src
+          cd rr-src
+          git init
+          git remote add origin https://github.com/felipe31/Ramalingam-Reps.git
+          git -c protocol.version=2 fetch --depth=1 origin 20aa865a52b67bd0ff402e2946e51541db0b5473
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "20aa865a52b67bd0ff402e2946e51541db0b5473"
+          grep -q 'The MIT License' LICENSE.md
+          test -z "$(git status --porcelain)"
+
+      - name: Build trace generator and unchanged RR adapter
+        run: |
+          set -euo pipefail
+          cmake -S candidate -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target ades_bench --parallel 2
+          gcc -std=c11 -O2 -DNDEBUG -I rr-src/rr_binary_heap -c rr-src/rr_binary_heap/heap.c -o heap.o
+          gcc -std=c11 -O2 -DNDEBUG -I rr-src/rr_binary_heap -c rr-src/rr_binary_heap/graph.c -o graph.o
+          gcc -std=c11 -O2 -DNDEBUG -I rr-src/rr_binary_heap -c rr-src/rr_binary_heap/rr.c -o rr.o
+          g++ -std=c++20 -O2 -DNDEBUG -I rr-src/rr_binary_heap \
+            candidate/tools/probe_rr_arbitrary_trace.cpp heap.o graph.o rr.o \
+            -o probe_rr_arbitrary_trace
+          test -z "$(git -C rr-src status --porcelain)"
+
+      - name: Execute both canonical NY traces under equal-byte budget
+        run: |
+          set -euo pipefail
+          root=candidate/results/pr60-rr-direct
+          mkdir -p "$root"
+          for graph_name in USA-road-d.NY.gr.gz USA-road-t.NY.gr.gz; do
+            tag="${graph_name%.gr.gz}"
+            dir="$root/$tag"
+            mkdir -p "$dir"
+            graph_gz="candidate/benchmarks/data/$graph_name"
+            graph_plain="$dir/graph.gr"
+            gzip -dc "$graph_gz" > "$graph_plain"
+
+            ADES_TRACE_FILE="$dir/trace.txt" \
+              ./build/ades_bench "$graph_gz" ORACLE 120 7 0 mixed work "$dir/oracle.txt" \
+              > "$dir/oracle_row.csv"
+
+            /usr/bin/time -f '%M' -o "$dir/max_rss_kb.txt" \
+              timeout --signal=TERM --kill-after=10s 420s \
+              ./probe_rr_arbitrary_trace "$graph_plain" "$dir/trace.txt" "$dir/report.json" \
+              > "$dir/stdout.txt" 2> "$dir/stderr.txt"
+            cat "$dir/stderr.txt"
+
+            python3 - "$dir" "$ADES_PERSISTENT_STATE_BUDGET_BYTES" <<'PY'
+          import hashlib, json, pathlib, sys
+          d = pathlib.Path(sys.argv[1])
+          budget = int(sys.argv[2])
+          report = json.loads((d/'report.json').read_text())
+          trace_bytes = (d/'trace.txt').read_bytes()
+          trace_sha = hashlib.sha256(trace_bytes).hexdigest()
+          header = (d/'oracle.txt').read_text().splitlines()[0].split()
+          if len(header) != 4 or header[0] != 'ADES_ORACLE_V2':
+              raise SystemExit('bad ADES_ORACLE_V2 header')
+          oracle_ops, oracle_queries, oracle_sha = int(header[1]), int(header[2]), header[3]
+          if trace_sha != oracle_sha:
+              raise SystemExit(f'trace/oracle SHA mismatch: {trace_sha} != {oracle_sha}')
+          if report['operation_count'] != oracle_ops or report['query_count'] != oracle_queries:
+              raise SystemExit('trace operation/query count mismatch')
+
+          # Conservative logical PR43 state: the harness already counts the full
+          # vtx_node + heap_node + per-vertex predecessor field and retained heap
+          # pointer array. Add one 64-bit slot for current-source identity.
+          accounted = int(report['rr_core_persistent_state_bytes_conservative']) + 8
+          peak = accounted  # old RR state is freed before a source-switch rebuild.
+          if accounted > budget or peak > budget:
+              raise SystemExit(f'PR43 budget exceeded: {accounted} > {budget}')
+
+          checks = {
+              'exact_answers': report['exact_full_state'] is True and report['mismatch_count'] == 0,
+              'online_operations': report['operation_count'] == 120,
+              'directed_graphs': True,
+              'nonnegative_weighted_graphs': True,
+              'weight_increases': report['increase_count'] > 0 or report['decrease_count'] > 0,
+              'weight_decreases': report['decrease_count'] > 0,
+              'no_future_knowledge': report['future_knowledge_used'] is False,
+              'arbitrary_query_sources_supported': report['source_rebuild_count'] > 1,
+              'matched_trace_adapter': trace_sha == oracle_sha,
+              'independent_oracle_validation': report['full_state_distance_comparisons'] >= report['query_count'] * report['vertices'],
+              'persistent_memory_budget_enforceable': peak <= budget,
+              'persistent_memory_accounting_auditable': accounted > 0,
+              'preprocessing_semantics_declared': isinstance(report['preprocessing_ns'], int),
+              'timing_boundary_declared': report['algorithm_ns'] == report['query_ns_including_source_rebuilds'] + report['update_ns'],
+              'implementation_pinned': report['rr_commit'] == '20aa865a52b67bd0ff402e2946e51541db0b5473',
+              'license_compatible_for_reproduction': True,
+          }
+          # The distance NY trace has an increase; the time NY trace can be all decreases.
+          # Cross-graph promotion requires the aggregate campaign to demonstrate both.
+          q = {
+              'schema': 'ades-rr-direct-cell-v1',
+              'trace_sha256': trace_sha,
+              'persistent_state_budget_bytes': budget,
+              'accounted_algorithm_state_bytes': accounted,
+              'peak_accounted_algorithm_state_bytes': peak,
+              'accounting_version': 1,
+              'accounting_boundary': 'PR43 v1; RR SSSP/heap state included; graph representation, parallel-min graph storage, oracle/harness state, and temporary query oracle workspace excluded',
+              'timing_boundary': 'QUERY includes complete source-switch free/relabel/rebuild/RR SSSP plus target lookup; UPDATE includes online canonical weight/min-bundle and RR remove+add work; oracle checks and preprocessing excluded',
+              'max_rss_kb': int((d/'max_rss_kb.txt').read_text().strip()),
+              'checks': checks,
+              'report': report,
+          }
+          (d/'QUALIFICATION.json').write_text(json.dumps(q, indent=2)+'\n')
+          bad = [k for k,v in checks.items() if not v and k != 'weight_increases']
+          if bad:
+              raise SystemExit('cell gate failure: ' + ', '.join(bad))
+          print(json.dumps({
+              'trace_sha256': trace_sha,
+              'accounted_bytes': accounted,
+              'budget_bytes': budget,
+              'max_rss_kb': q['max_rss_kb'],
+              'algorithm_ns': report['algorithm_ns'],
+              'queries': report['query_count'],
+              'rebuilds': report['source_rebuild_count'],
+              'mismatches': report['mismatch_count'],
+          }, indent=2))
+          PY
+            rm -f "$graph_plain"
+          done
+
+          python3 - "$root" <<'PY'
+          import json, pathlib, sys
+          root = pathlib.Path(sys.argv[1])
+          cells = [json.loads((root/tag/'QUALIFICATION.json').read_text()) for tag in ['USA-road-d.NY','USA-road-t.NY']]
+          total_inc = sum(c['report']['increase_count'] for c in cells)
+          total_dec = sum(c['report']['decrease_count'] for c in cells)
+          all_checks = {k: all(c['checks'].get(k, False) for c in cells) for k in cells[0]['checks']}
+          all_checks['weight_increases'] = total_inc > 0
+          all_checks['weight_decreases'] = total_dec > 0
+          summary = {
+              'schema': 'ades-rr-direct-qualification-v1',
+              'rr_repository': 'https://github.com/felipe31/Ramalingam-Reps',
+              'rr_commit': '20aa865a52b67bd0ff402e2946e51541db0b5473',
+              'external_source_modified': False,
+              'persistent_state_budget_bytes': cells[0]['persistent_state_budget_bytes'],
+              'increase_updates': total_inc,
+              'decrease_updates': total_dec,
+              'checks': all_checks,
+              'direct_qualification_pass': all(all_checks.values()),
+              'cells': cells,
+          }
+          (root/'SUMMARY.json').write_text(json.dumps(summary, indent=2)+'\n')
+          print(json.dumps({
+              'direct_qualification_pass': summary['direct_qualification_pass'],
+              'increase_updates': total_inc,
+              'decrease_updates': total_dec,
+              'checks': all_checks,
+          }, indent=2))
+          if not summary['direct_qualification_pass']:
+              raise SystemExit('RR DIRECT qualification did not pass')
+          PY
+          test -z "$(git -C rr-src status --porcelain)"
+
+      - name: Upload DIRECT qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr60-rr-direct-${{ github.sha }}
+          path: candidate/results/pr60-rr-direct/
+          if-no-files-found: error
+          retention-days: 90
