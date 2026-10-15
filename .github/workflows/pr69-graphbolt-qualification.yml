@@ -87,6 +87,43 @@ jobs:
           echo "$code" > evidence/pr69/diagnostic-omp1/diagnostic-exit-code.txt
           exit 0
 
+      - name: Diagnostic - capture live stuck stack on frozen first case
+        run: |
+          set +e
+          mkdir -p evidence/pr69/diagnostic-gdb/out
+          diag_case="$PWD/evidence/pr69/diagnostic-omp1/cases/seed-1201__source-0"
+          bt="$PWD/evidence/pr69/diagnostic-gdb/backtrace.txt"
+          if ! command -v gdb >/dev/null 2>&1; then
+            echo "gdb unavailable on runner" > "$bt"
+            exit 0
+          fi
+          cat > evidence/pr69/diagnostic-gdb/commands.gdb <<GDB
+          set pagination off
+          set confirm off
+          set environment OMP_NUM_THREADS 1
+          set environment LD_PRELOAD $PWD/external/mimalloc/out/release/libmimalloc.so
+          run -source 0 -numberOfUpdateBatches 80 -nEdges 1 -fixedBatchSize -simple -enforceEdgeValidity -streamPath $diag_case/stream.txt -outputFile $PWD/evidence/pr69/diagnostic-gdb/out/out- $diag_case/initial.adj
+          info threads
+          thread apply all bt full
+          quit
+          GDB
+          gdb -q -batch -x evidence/pr69/diagnostic-gdb/commands.gdb \
+            "$PWD/graphbolt-runtime/graphbolt_sssp" > "$bt" 2>&1 &
+          gdb_pid=$!
+          sleep 5
+          kill -INT "$gdb_pid" 2>/dev/null || true
+          for _ in $(seq 1 10); do
+            if ! kill -0 "$gdb_pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if kill -0 "$gdb_pid" 2>/dev/null; then
+            echo "GDB did not exit after interrupt; terminating diagnostic" >> "$bt"
+            kill -TERM "$gdb_pid" 2>/dev/null || true
+          fi
+          wait "$gdb_pid" || true
+          tail -n 240 "$bt" || true
+          exit 0
+
       - name: Execute exact semantic qualification
         env:
           OMP_NUM_THREADS: '4'
@@ -142,6 +179,7 @@ jobs:
             echo "preflight_5=modern native OpenMP build reached compiler but upstream parallel.h omitted <cstdint>; no GraphBolt execution"
             echo "preflight_6=source-preserving modern OpenMP build executed but first case timed out at 20s while mimalloc was omitted; upstream README states mimalloc is required for correct/efficient operation"
             echo "preflight_7=mimalloc restored and LD_PRELOAD active; OMP_NUM_THREADS=4 still timed out on first frozen case at 20s before semantic output; no exactness outcome"
+            echo "preflight_8=same mimalloc-backed binary and frozen case timed out identically with OMP_NUM_THREADS=1; multi-thread race hypothesis falsified"
             python3 --version
             g++ --version | head -1
             cmake --version | head -1
