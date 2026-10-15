@@ -1,0 +1,163 @@
+name: ADES PR59 Boost.Graph Dijkstra qualification
+
+on:
+  pull_request:
+    paths:
+      - 'tools/probe_boost_graph_dijkstra.cpp'
+      - 'benchmarks/boost_graph_direct.cpp'
+      - '.github/workflows/pr59-boost-graph-qualification.yml'
+      - 'benchmarks/comparators/registry.json'
+  push:
+    branches:
+      - pr59-boost-graph-direct-baseline
+
+permissions:
+  contents: read
+
+jobs:
+  semantic-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout ADES probe
+        uses: actions/checkout@v4
+        with:
+          path: candidate
+
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential curl bzip2
+
+      - name: Fetch and verify Boost 1.92.0 source
+        run: |
+          curl --fail --location --retry 4 --retry-all-errors \
+            https://archives.boost.io/release/1.92.0/source/boost_1_92_0.tar.bz2 \
+            --output boost_1_92_0.tar.bz2
+          echo '5c1d40cb8e19adbf740a4ec2da35b3e58f3f5804b1dce44deb53df72193cbc6c  boost_1_92_0.tar.bz2' | sha256sum --check --strict
+          tar -xjf boost_1_92_0.tar.bz2
+          test -f boost_1_92_0/boost/graph/dijkstra_shortest_paths.hpp
+          test -f boost_1_92_0/LICENSE_1_0.txt
+
+      - name: Compile pinned Boost.Graph probe
+        run: |
+          g++ -std=c++20 -O2 -DNDEBUG \
+            -I boost_1_92_0 \
+            candidate/tools/probe_boost_graph_dijkstra.cpp \
+            -o probe_boost_graph_dijkstra
+
+      - name: Run directed mixed-weight semantic probe
+        run: |
+          mkdir -p candidate/results/pr59-boost-graph-preflight
+          ./probe_boost_graph_dijkstra \
+            candidate/results/pr59-boost-graph-preflight/report.json
+          python3 -m json.tool candidate/results/pr59-boost-graph-preflight/report.json >/dev/null
+          cat candidate/results/pr59-boost-graph-preflight/report.json
+
+      - name: Upload semantic evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr59-boost-graph-preflight-${{ github.sha }}
+          path: candidate/results/pr59-boost-graph-preflight/
+          if-no-files-found: error
+          retention-days: 90
+
+  matched-direct-adapter:
+    needs: semantic-preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout ADES
+        uses: actions/checkout@v4
+        with:
+          path: candidate
+
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake curl bzip2 zlib1g-dev time
+
+      - name: Fetch and verify Boost 1.92.0 source
+        run: |
+          curl --fail --location --retry 4 --retry-all-errors \
+            https://archives.boost.io/release/1.92.0/source/boost_1_92_0.tar.bz2 \
+            --output boost_1_92_0.tar.bz2
+          echo '5c1d40cb8e19adbf740a4ec2da35b3e58f3f5804b1dce44deb53df72193cbc6c  boost_1_92_0.tar.bz2' | sha256sum --check --strict
+          tar -xjf boost_1_92_0.tar.bz2
+
+      - name: Build ADES oracle generator and external adapter
+        run: |
+          cmake -S candidate -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target ades_bench --parallel 2
+          g++ -std=c++20 -O2 -DNDEBUG \
+            -I boost_1_92_0 -I candidate/include \
+            candidate/benchmarks/boost_graph_direct.cpp \
+            build/libades.a -lz \
+            -o boost_graph_direct
+
+      - name: Execute matched canonical traces
+        run: |
+          set -euo pipefail
+          root=candidate/results/pr59-boost-graph-direct
+          mkdir -p "$root"
+          for graph_name in USA-road-d.NY.gr.gz USA-road-t.NY.gr.gz; do
+            tag="${graph_name%.gr.gz}"
+            dir="$root/$tag"
+            mkdir -p "$dir"
+            graph="candidate/benchmarks/data/$graph_name"
+
+            ADES_TRACE_FILE="$dir/trace.txt" \
+              ./build/ades_bench "$graph" ORACLE 120 7 0 mixed work "$dir/oracle.txt" \
+              > "$dir/oracle_row.csv"
+
+            ADES_PERSISTENT_STATE_BUDGET_BYTES=1 \
+              /usr/bin/time -f '%M' -o "$dir/max_rss_kb.txt" \
+              ./boost_graph_direct "$graph" "$dir/trace.txt" "$dir/oracle.txt" "$dir/report.json"
+
+            python3 - "$dir/oracle_row.csv" "$dir/report.json" <<'PY'
+          import csv, json, sys
+          oracle_path, report_path = sys.argv[1:]
+          row = next(csv.reader(open(oracle_path, newline='')))
+          if len(row) < 11 or row[0] != 'ORACLE':
+              raise SystemExit('bad ORACLE row')
+          report = json.load(open(report_path))
+          expected = {
+              'trace_sha256': row[5],
+              'operation_count': int(row[6]),
+              'query_count': int(row[7]),
+              'update_count': int(row[8]),
+              'increase_count': int(row[9]),
+              'decrease_count': int(row[10]),
+          }
+          for key, value in expected.items():
+              if report.get(key) != value:
+                  raise SystemExit(f'{key} mismatch: {report.get(key)!r} != {value!r}')
+          checks = {
+              'boost_version': report.get('boost_version') == '1_92',
+              'exact_answers': report.get('exact_answers') is True,
+              'oracle_trace_identity': report.get('oracle_trace_identity') is True,
+              'online_arrival_order': report.get('online_arrival_order') is True,
+              'no_future_knowledge': report.get('future_knowledge_used') is False,
+              'arbitrary_sources': report.get('unique_query_sources', 0) > 1,
+              'budget': report.get('persistent_state_budget_bytes') == 1,
+              'accounted_zero': report.get('accounted_algorithm_state_bytes') == 0,
+              'peak_zero': report.get('peak_accounted_algorithm_state_bytes') == 0,
+              'accounting_version': report.get('accounting_version') == 1,
+              'timing_sum': report.get('algorithm_ns') == report.get('query_ns') + report.get('update_ns'),
+              'preprocessing_declared': isinstance(report.get('preprocessing_ns'), int),
+          }
+          bad = [k for k, ok in checks.items() if not ok]
+          if bad:
+              raise SystemExit('adapter gate failure: ' + ', '.join(bad))
+          print(json.dumps({'matched_trace': expected, 'checks': checks}, indent=2))
+          PY
+            cat "$dir/report.json"
+          done
+
+      - name: Upload matched DIRECT evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr59-boost-graph-direct-${{ github.sha }}
+          path: candidate/results/pr59-boost-graph-direct/
+          if-no-files-found: error
+          retention-days: 90

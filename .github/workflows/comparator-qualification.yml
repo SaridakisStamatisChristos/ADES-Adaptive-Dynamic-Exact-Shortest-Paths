@@ -20,7 +20,7 @@ jobs:
           python3 tools/validate_comparator_registry.py \
             --registry benchmarks/comparators/registry.json \
             --output results/comparator-qualification/SUMMARY.json
-      - name: Verify PR48 current scientific status
+      - name: Verify current scientific status
         run: |
           python3 - <<'PY'
           import json
@@ -31,17 +31,20 @@ jobs:
           assert summary["pending_external_comparators"]
           assert summary["context_external_comparators"]
           assert summary["pinned_external_implementations"]
-          assert summary["headline_sota_ready"] == bool(summary["direct_external_comparators"])
-          # PR48 intentionally finds no fully qualified external comparator yet.
-          # A future promotion PR must update this acceptance assertion only after
-          # it supplies the adapter/oracle/memory/timing evidence required by DIRECT.
-          assert summary["direct_external_comparators"] == []
-          assert summary["headline_sota_ready"] is False
-          assert summary["headline_sota_blocker"]
+          direct = summary["direct_external_comparators"]
+          assert summary["headline_sota_ready"] == bool(direct)
+          # PR48 originally asserted that DIRECT was empty. Promotion PRs may
+          # legitimately change that state only through the registry validator,
+          # which requires every frozen hard gate to be literal PASS.
+          if direct:
+              assert summary["headline_sota_blocker"] is None
+          else:
+              assert summary["headline_sota_ready"] is False
+              assert summary["headline_sota_blocker"]
           PY
       - name: Upload qualification evidence
         uses: actions/upload-artifact@v4
         with:
-          name: ades-comparator-qualification-pr48
+          name: ades-comparator-qualification
           path: results/comparator-qualification
           if-no-files-found: error
