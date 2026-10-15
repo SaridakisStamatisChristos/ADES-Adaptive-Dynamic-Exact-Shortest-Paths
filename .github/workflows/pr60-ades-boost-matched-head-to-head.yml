@@ -23,10 +23,15 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - name: Checkout combined candidate
+      - name: Checkout exact candidate head
         uses: actions/checkout@v4
         with:
           path: candidate
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify checkout identity
+        env:
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
       - name: Install build prerequisites
         run: |
           sudo apt-get update
@@ -43,10 +48,15 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     steps:
-      - name: Checkout combined candidate
+      - name: Checkout exact candidate head
         uses: actions/checkout@v4
         with:
           path: candidate
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify checkout identity
+        env:
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
       - name: Install build prerequisites
         run: |
           sudo apt-get update
@@ -72,9 +82,10 @@ jobs:
             build/libades.a -lz -o boost_graph_direct
       - name: Execute exact PR59 NY traces in order-balanced matched pairs
         env:
-          CANDIDATE_SHA: ${{ github.sha }}
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
           root=candidate/results/pr60-ades-boost-matched
           mkdir -p "$root"
 
@@ -129,7 +140,9 @@ jobs:
           done
 
           {
-            echo "github_sha=$CANDIDATE_SHA"
+            echo "candidate_head_sha=$CANDIDATE_SHA"
+            echo "checked_out_sha=$(git -C candidate rev-parse HEAD)"
+            echo "github_event_sha=${GITHUB_SHA:-unknown}"
             echo "runner_os=${RUNNER_OS:-unknown}"
             echo "runner_arch=${RUNNER_ARCH:-unknown}"
             uname -a
@@ -141,7 +154,7 @@ jobs:
       - name: Upload raw matched evidence
         uses: actions/upload-artifact@v4
         with:
-          name: ades-pr60-matched-head-to-head-${{ github.sha }}
+          name: ades-pr60-matched-head-to-head-${{ github.event.pull_request.head.sha || github.sha }}
           path: candidate/results/pr60-ades-boost-matched/
           if-no-files-found: error
           retention-days: 90
