@@ -28,7 +28,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential cmake ninja-build python3-dev
 
-      - name: Fetch pinned NetworKit source
+      - name: Fetch pinned NetworKit source and submodules
         run: |
           mkdir networkit-src
           cd networkit-src
@@ -43,6 +43,32 @@ jobs:
           done
           git checkout --detach FETCH_HEAD
           test "$(git rev-parse HEAD)" = "ab420840dbb8a61fcb1ea0d89e5acc44fe66f2ab"
+
+          # NetworKit's pinned source tree records required third-party code as
+          # gitlinks.  The custom shallow parent checkout above does not populate
+          # those working trees automatically, so initialize the exact revisions
+          # recorded by the pinned parent commit rather than substituting an
+          # unpinned package or branch tip.
+          git submodule sync --recursive
+          for attempt in 1 2 3 4; do
+            if git -c protocol.version=2 submodule update --init --recursive; then
+              break
+            fi
+            if [ "$attempt" = 4 ]; then exit 1; fi
+            sleep $((attempt * 2))
+          done
+
+          # A leading '-' means uninitialized, '+' means the working tree is not
+          # at the recorded gitlink revision, and 'U' means unresolved conflict.
+          submodule_status="$(git submodule status --recursive)"
+          printf '%s\n' "$submodule_status"
+          if printf '%s\n' "$submodule_status" | grep -Eq '^[+-U]'; then
+            echo "submodule provenance verification failed" >&2
+            exit 1
+          fi
+          test -f extlibs/tlx/CMakeLists.txt
+          test -f extlibs/dhb/CMakeLists.txt
+          test -d extlibs/ttmath
 
       - name: Build and install pinned NetworKit
         env:
