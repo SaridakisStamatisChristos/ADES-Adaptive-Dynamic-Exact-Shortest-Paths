@@ -70,3 +70,6 @@ target_link_libraries(ades_workload_v2 PRIVATE ades)
 
 add_executable(ades_pilot_profile benchmarks/pilot_profile.cpp)
 target_link_libraries(ades_pilot_profile PRIVATE ades)
+
+add_executable(ades_pr70_fixed_source tools/pr70_ades_fixed_source.cpp)
+target_link_libraries(ades_pr70_fixed_source PRIVATE ades)
