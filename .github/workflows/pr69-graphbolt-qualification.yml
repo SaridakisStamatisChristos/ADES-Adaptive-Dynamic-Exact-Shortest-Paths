@@ -46,24 +46,17 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p graphbolt-runtime
-          docker pull gcc:8
-          docker run --rm \
-            -v "$PWD/external/graphbolt:/src:ro" \
-            -v "$PWD/graphbolt-runtime:/out" \
-            -w /src/apps \
-            gcc:8 bash -lc '
-              set -euo pipefail
-              # Stock gcc:8 lacks the legacy <cilk/...> development headers
-              # required by GraphBolt's official Cilk build.  The upstream
-              # parallel abstraction explicitly provides an OPENMP branch.
-              # Use that branch for SEMANTIC qualification only; GraphBolt
-              # source is unmodified and no performance result is admissible
-              # from this build.
-              g++ -std=c++14 -O3 -g -DOPENMP -fopenmp -DEDGELONG -DEDGEDATA \
-                  SSSP.C -pthread -o /out/graphbolt_sssp
-            '
+          # GraphBolt upstream explicitly provides an OPENMP branch in
+          # core/common/parallel.h.  Compile that branch natively on the hosted
+          # runner for SEMANTIC qualification only.  This avoids both the
+          # unavailable legacy Cilk headers and the unrelated Docker bind-mount
+          # failure seen in the previous preflight.  Source remains unmodified.
+          g++ -std=c++14 -O3 -g -DOPENMP -fopenmp -DEDGELONG -DEDGEDATA \
+              external/graphbolt/apps/SSSP.C -pthread \
+              -o graphbolt-runtime/graphbolt_sssp
           test -x graphbolt-runtime/graphbolt_sssp
           ldd graphbolt-runtime/graphbolt_sssp | tee graphbolt-ldd.txt
+          g++ --version | head -1 | tee graphbolt-compiler.txt
 
       - name: Execute exact semantic qualification
         env:
@@ -100,19 +93,20 @@ jobs:
           mkdir -p evidence/pr69/provenance
           cp graphbolt-source-sha256.txt evidence/pr69/provenance/ || true
           cp graphbolt-ldd.txt evidence/pr69/provenance/ || true
+          cp graphbolt-compiler.txt evidence/pr69/provenance/ || true
           {
             echo "runner_os=${RUNNER_OS}"
             echo "runner_arch=${RUNNER_ARCH}"
             echo "head_sha=${GITHUB_SHA}"
             echo "graphbolt_sha=$(git -C external/graphbolt rev-parse HEAD)"
-            echo "semantic_build_image=gcc:8"
             echo "semantic_build_parallel_mode=upstream OPENMP branch; OMP_NUM_THREADS=4"
             echo "semantic_build_allocator=system/default (mimalloc intentionally omitted; semantic-only gate)"
             echo "preflight_1=official Cilk path could not compile because stock gcc:8 lacks legacy cilk headers; no GraphBolt execution"
             echo "preflight_2=serial build compiled; redundant host chmod failed before execution"
             echo "preflight_3=upstream serial fallback execution timed out before initial output on first 64-vertex case; no exactness outcome"
+            echo "preflight_4=Docker OpenMP build did not see SSSP.C in bind-mounted workdir; no compilation/execution"
             python3 --version
-            docker --version
+            g++ --version | head -1
             uname -a
           } > evidence/pr69/provenance/environment.txt
 
@@ -120,7 +114,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ades-pr69-graphbolt-qualification-${{ github.sha }}
+          name: ades-pr69-graphbolt-qualification-${{ github.event.pull_request.head.sha || github.sha }}
           path: evidence/pr69
           if-no-files-found: warn
           retention-days: 90
