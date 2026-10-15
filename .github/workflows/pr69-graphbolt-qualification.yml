@@ -73,6 +73,20 @@ jobs:
           ldd graphbolt-runtime/graphbolt_sssp | tee graphbolt-ldd.txt
           g++ --version | head -1 | tee graphbolt-compiler.txt
 
+      - name: Diagnostic - frozen semantic matrix with one OpenMP thread
+        env:
+          OMP_NUM_THREADS: '1'
+          LD_PRELOAD: ${{ github.workspace }}/external/mimalloc/out/release/libmimalloc.so
+        run: |
+          set +e
+          mkdir -p evidence/pr69/diagnostic-omp1
+          python3 tools/run_pr69_graphbolt_qualification.py \
+            --graphbolt "$PWD/graphbolt-runtime/graphbolt_sssp" \
+            --out evidence/pr69/diagnostic-omp1
+          code=$?
+          echo "$code" > evidence/pr69/diagnostic-omp1/diagnostic-exit-code.txt
+          exit 0
+
       - name: Execute exact semantic qualification
         env:
           OMP_NUM_THREADS: '4'
@@ -117,7 +131,8 @@ jobs:
             echo "head_sha=${GITHUB_SHA}"
             echo "graphbolt_sha=$(git -C external/graphbolt rev-parse HEAD)"
             echo "mimalloc_sha=$(git -C external/mimalloc rev-parse HEAD)"
-            echo "semantic_build_parallel_mode=upstream OPENMP branch; OMP_NUM_THREADS=4"
+            echo "semantic_build_parallel_mode=upstream OPENMP branch; qualification OMP_NUM_THREADS=4"
+            echo "diagnostic_parallel_mode=same frozen semantic matrix and binary; OMP_NUM_THREADS=1; diagnostic only"
             echo "semantic_build_compatibility_include=-include cstdint; source-preserving fix for missing upstream standard-header dependency"
             echo "semantic_build_allocator=mimalloc v1.6.0 at 04f1c3b1e23677ce03bd16137e73089abd552175; required by GraphBolt upstream documentation"
             echo "preflight_1=official Cilk path could not compile because stock gcc:8 lacks legacy cilk headers; no GraphBolt execution"
@@ -126,6 +141,7 @@ jobs:
             echo "preflight_4=Docker OpenMP build did not see SSSP.C in bind-mounted workdir; no compilation/execution"
             echo "preflight_5=modern native OpenMP build reached compiler but upstream parallel.h omitted <cstdint>; no GraphBolt execution"
             echo "preflight_6=source-preserving modern OpenMP build executed but first case timed out at 20s while mimalloc was omitted; upstream README states mimalloc is required for correct/efficient operation"
+            echo "preflight_7=mimalloc restored and LD_PRELOAD active; OMP_NUM_THREADS=4 still timed out on first frozen case at 20s before semantic output; no exactness outcome"
             python3 --version
             g++ --version | head -1
             cmake --version | head -1
