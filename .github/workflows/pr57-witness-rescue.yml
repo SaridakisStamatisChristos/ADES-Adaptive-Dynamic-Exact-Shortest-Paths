@@ -1,0 +1,63 @@
+name: ADES PR57 alternate witness rescue
+
+on:
+  pull_request:
+    paths:
+      - 'include/ades/dynamic_repair.hpp'
+      - 'src/dynamic_repair.cpp'
+      - 'tests/pr57_witness_rescue.cpp'
+      - 'benchmarks/pr57_witness_profile.cpp'
+      - 'tools/run_pr57_witness_ablation.py'
+      - 'CMakeLists.txt'
+      - '.github/workflows/pr57-witness-rescue.yml'
+  push:
+    branches:
+      - pr57-alternate-witness-rescue
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-measure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+        with:
+          path: candidate
+      - name: Checkout frozen PR55 baseline
+        uses: actions/checkout@v4
+        with:
+          ref: pr55-radix-heap-ablation
+          path: baseline
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Build and test candidate
+        run: |
+          cmake -S candidate -B candidate/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build candidate/build -j2
+          ctest --test-dir candidate/build --output-on-failure
+      - name: Build frozen baseline library
+        run: |
+          cmake -S baseline -B baseline/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build baseline/build -j2 --target ades
+      - name: Build identical mechanism runners
+        run: |
+          c++ -std=c++20 -O3 candidate/benchmarks/pr57_witness_profile.cpp \
+            -Ibaseline/include baseline/build/libades.a -lz -o baseline/pr57_witness_profile
+          c++ -std=c++20 -O3 candidate/benchmarks/pr57_witness_profile.cpp \
+            -Icandidate/include candidate/build/libades.a -lz -o candidate/pr57_witness_profile
+      - name: Run matched PR55 vs PR57 mechanism ablation
+        run: |
+          python3 candidate/tools/run_pr57_witness_ablation.py \
+            --baseline baseline/pr57_witness_profile \
+            --candidate candidate/pr57_witness_profile \
+            --out candidate/results/pr57-witness-rescue
+      - name: Upload development evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr57-witness-rescue-${{ github.sha }}
+          path: candidate/results/pr57-witness-rescue/
+          if-no-files-found: error
+          retention-days: 90
