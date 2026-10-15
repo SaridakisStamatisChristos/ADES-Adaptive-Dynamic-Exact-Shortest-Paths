@@ -45,6 +45,10 @@ jobs:
           test "$(git rev-parse HEAD)" = "ab420840dbb8a61fcb1ea0d89e5acc44fe66f2ab"
 
       - name: Build and install pinned NetworKit
+        env:
+          CMAKE_BUILD_PARALLEL_LEVEL: '1'
+          NINJAFLAGS: '-j1'
+          MAKEFLAGS: '-j1'
         run: python3 -m pip install ./networkit-src
 
       - name: Run directed mixed-weight semantic probe
