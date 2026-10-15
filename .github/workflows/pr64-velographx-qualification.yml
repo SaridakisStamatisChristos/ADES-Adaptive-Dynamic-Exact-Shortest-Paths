@@ -56,48 +56,43 @@ jobs:
               ('USA-road-d.NY.gr.gz','7b2446c7ffe6179efbc42af6812448e8cb782f12968ca2bb1d50d979343056d4'),
               ('USA-road-t.NY.gr.gz','de902573142dbf12c42b065d9a6a679e4794372eb91d2748ee78089720377156'),
           ]
-          # Exact PR59 canonical trace update edge IDs. Distance/travel-time traces
-          # use the same edge-ID sequence; only old/new weights differ.
           update_ids = [400578,555030,69321,725350,302832,21258,108846,117290,568843,543238,122412,30533,225119,214623,193688,182128,731540,222086,651180,326586,135690,236985,373241,632917,3166,472831,98783,185087,475373]
-          result = {
-              'schema':'ades-pr64-velographx-ny-representability-v2',
-              'pr59_trace_update_edge_ids': update_ids,
-              'graphs':{}
-          }
+          result = {'schema':'ades-pr64-velographx-ny-representability-v3','pr59_trace_update_edge_ids':update_ids,'graphs':{}}
           all_updates_unambiguous = True
+          all_duplicates_weight_equivalent = True
           for name, sha in files:
               path = pathlib.Path('harness/benchmarks/data')/name
-              by_pair = {}
-              edge_records = []
+              by_pair, edge_records = {}, []
               with gzip.open(path,'rt',encoding='ascii') as f:
                   for line in f:
-                      if not line.startswith('a '):
-                          continue
+                      if not line.startswith('a '): continue
                       _, us, vs, ws = line.split()
-                      edge_id = len(edge_records)
-                      u, v, w = int(us), int(vs), int(ws)
-                      edge_records.append((u,v,w))
-                      by_pair.setdefault((u,v),[]).append(edge_id)
-              duplicate_groups = {pair: ids for pair, ids in by_pair.items() if len(ids) > 1}
-              touched = []
+                      edge_id=len(edge_records); u,v,w=int(us),int(vs),int(ws)
+                      edge_records.append((u,v,w)); by_pair.setdefault((u,v),[]).append(edge_id)
+              duplicate_groups={pair:ids for pair,ids in by_pair.items() if len(ids)>1}
+              conflicting=[]
+              for (u,v), ids in duplicate_groups.items():
+                  weights=sorted({edge_records[i][2] for i in ids})
+                  if len(weights)>1: conflicting.append({'u':u,'v':v,'edge_ids':ids,'weights':weights})
+              touched=[]
               for edge_id in update_ids:
-                  u,v,w = edge_records[edge_id]
-                  group = by_pair[(u,v)]
-                  if len(group) > 1:
-                      touched.append({'edge_id':edge_id,'u':u,'v':v,'weight':w,'same_endpoint_edge_ids':group})
-              unambiguous = not touched
-              all_updates_unambiguous = all_updates_unambiguous and unambiguous
-              result['graphs'][name] = {
-                  'sha256':sha,
-                  'arc_count':len(edge_records),
-                  'unique_endpoint_pairs':len(by_pair),
+                  u,v,w=edge_records[edge_id]; group=by_pair[(u,v)]
+                  if len(group)>1: touched.append({'edge_id':edge_id,'u':u,'v':v,'weight':w,'same_endpoint_edge_ids':group})
+              unambiguous=not touched; equivalent=not conflicting
+              all_updates_unambiguous &= unambiguous; all_duplicates_weight_equivalent &= equivalent
+              result['graphs'][name]={
+                  'sha256':sha,'arc_count':len(edge_records),'unique_endpoint_pairs':len(by_pair),
                   'duplicate_endpoint_group_count':len(duplicate_groups),
                   'duplicate_endpoint_extra_arc_count':sum(len(ids)-1 for ids in duplicate_groups.values()),
-                  'whole_graph_simple_digraph_representable':not duplicate_groups,
+                  'duplicate_endpoint_conflicting_weight_group_count':len(conflicting),
+                  'first_conflicting_weight_examples':conflicting[:10],
+                  'duplicate_collapse_preserves_initial_weights':equivalent,
                   'pr59_updated_edges_with_duplicate_endpoints':touched,
                   'pr59_update_edge_identity_unambiguous':unambiguous,
               }
-          result['all_pr59_trace_updates_endpoint_unambiguous'] = all_updates_unambiguous
+          result['all_pr59_trace_updates_endpoint_unambiguous']=all_updates_unambiguous
+          result['all_duplicate_groups_weight_equivalent']=all_duplicates_weight_equivalent
+          result['pr59_ny_trace_semantically_representable_after_duplicate_collapse']=all_updates_unambiguous and all_duplicates_weight_equivalent
           pathlib.Path('harness/results/pr64-velographx/ny-representability.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
           print(json.dumps(result,indent=2,sort_keys=True))
           PY
