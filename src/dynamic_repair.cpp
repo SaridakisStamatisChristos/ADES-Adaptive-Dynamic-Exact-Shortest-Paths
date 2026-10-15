@@ -4,6 +4,7 @@
 #include <limits>
 namespace ades {
 namespace {
+constexpr std::size_t kWitnessProbeLimit=64;
 struct RepairMembershipScratch {
  std::vector<std::uint32_t> mark;
  std::uint32_t epoch=0;
@@ -15,6 +16,32 @@ struct RepairMembershipScratch {
  }
 };
 thread_local RepairMembershipScratch repair_membership_scratch;
+
+// Look for an unchanged shortest-path witness entering v. The probe is bounded
+// so a high-indegree vertex cannot turn a cheap rebuild decision into an
+// unbounded pre-repair scan. If mark/epoch are supplied, predecessors inside the
+// affected selected-SPT subtree are excluded because their own witnesses may
+// depend on the increased edge.
+std::uint32_t probe_alternate_witness(const Graph& g,const SSSPState& s,
+                                      std::uint32_t v,std::uint32_t changed_id,
+                                      const std::vector<std::uint32_t>* mark,
+                                      std::uint32_t epoch,bool strict_distance,
+                                      RepairWork* work){
+ const auto target=s.dist[v];
+ const auto incoming=g.in(v);
+ const auto limit=std::min<std::size_t>(incoming.size(),kWitnessProbeLimit);
+ for(std::size_t i=0;i<limit;++i){
+  const auto a=incoming[i];
+  if(work)work->witness_scans++;
+  if(a.edge_id==changed_id)continue;
+  if(mark&&(*mark)[a.to]==epoch)continue;
+  if(s.dist[a.to]>=INF)continue;
+  if(strict_distance&&!(s.dist[a.to]<target))continue;
+  const auto&e=g.edge(a.edge_id);
+  if(sat_add(s.dist[a.to],e.weight)==target)return a.edge_id;
+ }
+ return kNoIndex;
+}
 }
 RepairResult repair_decrease(const Graph& g,SSSPState& s,std::uint32_t id){
  const auto&e=g.edge(id);if(s.dist[e.from]>=INF)return RepairResult::Filtered;
@@ -32,6 +59,19 @@ RepairResult repair_increase(const Graph& g,SSSPState& s,std::uint32_t id,const 
  // shortest-path witness after this edge increases. Distances cannot decrease
  // on an increase, so no semantic shortest-path state is invalidated.
  if(s.parent_edge[old.to]!=id)return RepairResult::Filtered;
+
+ // PR57 fast path: if a different tight predecessor has strictly smaller
+ // distance than the affected root, it cannot be a descendant of that root in
+ // any nonnegative-weight selected SPT. Its selected source path therefore does
+ // not depend on the increased parent edge. Reparenting the root preserves its
+ // distance and every descendant witness, avoiding subtree discovery entirely.
+ if(const auto alternate=probe_alternate_witness(g,s,old.to,id,nullptr,0,true,work);
+    alternate!=kNoIndex){
+  set_parent(g,s,old.to,alternate);
+  if(work)work->witness_rescues++;
+  return RepairResult::Repaired;
+ }
+
  // Membership marks are reusable implementation scratch, not resident semantic
  // state. Keep repair_epoch as a diagnostic lifecycle counter while the actual
  // membership epoch lives in one thread-local workspace shared across repairs.
@@ -48,6 +88,18 @@ RepairResult repair_increase(const Graph& g,SSSPState& s,std::uint32_t id,const 
    stack.push_back(child);
   }
  }
+
+ // Zero-weight/equal-distance paths need one extra guard: an equal-distance
+ // predecessor can lie inside the affected subtree. After read-only membership
+ // discovery we can safely rescue only through a predecessor outside that
+ // subtree. This still happens before any distance/parent invalidation.
+ if(const auto alternate=probe_alternate_witness(g,s,old.to,id,&mark,epoch,false,work);
+    alternate!=kNoIndex){
+  set_parent(g,s,old.to,alternate);
+  if(work)work->witness_rescues++;
+  return RepairResult::Repaired;
+ }
+
  for(auto v:nodes){s.dist[v]=INF;set_parent(g,s,v,kNoIndex);}
  RadixQueue q;
  for(auto v:nodes){
