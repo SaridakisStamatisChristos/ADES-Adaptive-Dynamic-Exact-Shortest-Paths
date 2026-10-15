@@ -47,14 +47,15 @@ jobs:
           set -euo pipefail
           mkdir -p graphbolt-runtime
           # GraphBolt upstream explicitly provides an OPENMP branch in
-          # core/common/parallel.h.  Compile that branch natively on the hosted
-          # runner for SEMANTIC qualification only.  This avoids both the
-          # unavailable legacy Cilk headers and the unrelated Docker bind-mount
-          # failure seen in the previous preflight.  Source remains unmodified.
+          # core/common/parallel.h. Compile that branch natively for this
+          # SEMANTIC qualification only. Upstream parallel.h uses fixed-width
+          # integer types without including <cstdint>; inject that standard
+          # header through the compiler rather than editing upstream bytes.
           g++ -std=c++14 -O3 -g -DOPENMP -fopenmp -DEDGELONG -DEDGEDATA \
-              external/graphbolt/apps/SSSP.C -pthread \
+              -include cstdint external/graphbolt/apps/SSSP.C -pthread \
               -o graphbolt-runtime/graphbolt_sssp
           test -x graphbolt-runtime/graphbolt_sssp
+          test -z "$(git -C external/graphbolt status --porcelain)"
           ldd graphbolt-runtime/graphbolt_sssp | tee graphbolt-ldd.txt
           g++ --version | head -1 | tee graphbolt-compiler.txt
 
@@ -100,11 +101,13 @@ jobs:
             echo "head_sha=${GITHUB_SHA}"
             echo "graphbolt_sha=$(git -C external/graphbolt rev-parse HEAD)"
             echo "semantic_build_parallel_mode=upstream OPENMP branch; OMP_NUM_THREADS=4"
+            echo "semantic_build_compatibility_include=-include cstdint; source-preserving fix for missing upstream standard-header dependency"
             echo "semantic_build_allocator=system/default (mimalloc intentionally omitted; semantic-only gate)"
             echo "preflight_1=official Cilk path could not compile because stock gcc:8 lacks legacy cilk headers; no GraphBolt execution"
             echo "preflight_2=serial build compiled; redundant host chmod failed before execution"
             echo "preflight_3=upstream serial fallback execution timed out before initial output on first 64-vertex case; no exactness outcome"
             echo "preflight_4=Docker OpenMP build did not see SSSP.C in bind-mounted workdir; no compilation/execution"
+            echo "preflight_5=modern native OpenMP build reached compiler but upstream parallel.h omitted <cstdint>; no GraphBolt execution"
             python3 --version
             g++ --version | head -1
             uname -a
