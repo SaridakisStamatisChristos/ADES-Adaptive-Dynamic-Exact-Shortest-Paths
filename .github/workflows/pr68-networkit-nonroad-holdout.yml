@@ -1,0 +1,172 @@
+name: ADES PR68 NetworKit non-road holdout
+
+on:
+  push:
+    branches: [pr68-networkit-nonroad-holdout]
+  pull_request:
+    paths:
+      - 'benchmarks/networkit_direct.cpp'
+      - 'tools/generate_pr68_nonroad_holdout.py'
+      - 'tools/run_pr68_networkit_pair.py'
+      - 'tools/run_pr68_networkit_holdout.py'
+      - 'tools/pr68_networkit_adapter/CMakeLists.txt'
+      - '.github/workflows/pr68-networkit-nonroad-holdout.yml'
+
+permissions:
+  contents: read
+
+env:
+  FROZEN_ADES_SHA: cf7cbc3ed7d9d37ad673a540485a1eee781d47fe
+  NETWORKIT_SHA: 6b3878ee00a6eadd50be3b3047fbcae56bcac685
+  BOOST_SHA256: 5c1d40cb8e19adbf740a4ec2da35b3e58f3f5804b1dce44deb53df72193cbc6c
+
+jobs:
+  nonroad-holdout:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout PR68 harness
+        uses: actions/checkout@v4
+        with:
+          path: harness
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Checkout frozen ADES candidate
+        uses: actions/checkout@v4
+        with:
+          path: candidate
+          ref: ${{ env.FROZEN_ADES_SHA }}
+
+      - name: Verify causal identities before execution
+        env:
+          HARNESS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git -C harness rev-parse HEAD)" = "$HARNESS_SHA"
+          test "$(git -C candidate rev-parse HEAD)" = "$FROZEN_ADES_SHA"
+          python3 -m py_compile \
+            harness/tools/generate_pr68_nonroad_holdout.py \
+            harness/tools/run_pr68_networkit_pair.py \
+            harness/tools/run_pr68_networkit_holdout.py
+
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build curl bzip2 zlib1g-dev time git
+
+      - name: Fetch pinned unmodified NetworKit 11.2.2 and Boost 1.92.0
+        run: |
+          set -euo pipefail
+          git clone --recursive --branch 11.2.2 --depth 1 \
+            https://github.com/networkit/networkit.git external/networkit
+          test "$(git -C external/networkit rev-parse HEAD)" = "$NETWORKIT_SHA"
+          git -C external/networkit submodule update --init --recursive
+          test -z "$(git -C external/networkit status --porcelain)"
+          curl --fail --location --retry 4 --retry-all-errors \
+            https://archives.boost.io/release/1.92.0/source/boost_1_92_0.tar.bz2 \
+            --output boost_1_92_0.tar.bz2
+          echo "$BOOST_SHA256  boost_1_92_0.tar.bz2" | sha256sum --check --strict
+          tar -xjf boost_1_92_0.tar.bz2
+
+      - name: Build frozen ADES, independent oracle, and NetworKit adapter
+        run: |
+          set -euo pipefail
+          cmake -S candidate -B ades-build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build ades-build --parallel 2 --target ades_bench
+          g++ -std=c++20 -O2 -DNDEBUG \
+            -I candidate/include \
+            candidate/benchmarks/ades_direct.cpp ades-build/libades.a -lz \
+            -o ades_direct
+          g++ -std=c++20 -O2 -DNDEBUG \
+            -I boost_1_92_0 -I candidate/include \
+            harness/tools/oracle_from_trace.cpp ades-build/libades.a -lz \
+            -o oracle_from_trace
+          cmake -S harness/tools/pr68_networkit_adapter -B nk-adapter-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DNETWORKIT_SOURCE="$PWD/external/networkit" \
+            -DADES_SOURCE="$PWD/candidate" \
+            -DADES_LIBRARY="$PWD/ades-build/libades.a" \
+            -DADAPTER_SOURCE="$PWD/harness/benchmarks/networkit_direct.cpp"
+          cmake --build nk-adapter-build --parallel 2 --target networkit_direct
+          cp nk-adapter-build/networkit_direct ./networkit_direct
+
+      - name: Generate frozen non-road graphs and fresh workload cells
+        run: |
+          set -euo pipefail
+          python3 harness/tools/generate_pr68_nonroad_holdout.py \
+            --out evidence/pr68/generated
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          m = json.loads(Path('evidence/pr68/generated/manifest.json').read_text())
+          assert m['cell_count'] == 24
+          assert len(m['graphs']) == 3
+          assert all(c['source_reuse_fraction'] >= 0.80 for c in m['cells'] if c['family']['kind'] != 'uniform')
+          assert all(c['source_reuse_fraction'] == 0.0 for c in m['cells'] if c['family']['kind'] == 'uniform')
+          print('PREREGISTERED_INPUTS PASS', m['cell_count'])
+          for g in m['graphs']:
+              print(g['graph_seed'], g['graph_sha256'], g['logical_undirected_edges'])
+          PY
+
+      - name: Execute 24-cell order-balanced exact holdout
+        run: |
+          set -euo pipefail
+          python3 harness/tools/run_pr68_networkit_holdout.py \
+            --manifest evidence/pr68/generated/manifest.json \
+            --oracle-builder "$PWD/oracle_from_trace" \
+            --ades "$PWD/ades_direct" \
+            --networkit "$PWD/networkit_direct" \
+            --pair-driver "$PWD/harness/tools/run_pr68_networkit_pair.py" \
+            --out evidence/pr68/results
+
+      - name: Verify exactness and expose falsification outcome
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          s = json.loads(Path('evidence/pr68/results/summary.json').read_text())
+          assert s['cell_count'] == 24
+          assert s['exactness_all_cells'] is True
+          print('EXACTNESS PASS 24/24')
+          print('strong_preregistered_pass=', s['strong_preregistered_pass'])
+          print('verdict=', s['verdict'])
+          print('total=', s['total'])
+          print('query_only=', s['query_only'])
+          print('family_strong_pass=', s['family_strong_pass'])
+          print('loss_cells_total=', s['loss_cells_total'])
+          print('loss_cells_query_only=', s['loss_cells_query_only'])
+          PY
+
+      - name: Record environment and exact source identities
+        env:
+          HARNESS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/pr68/provenance
+          {
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+            echo "harness_sha=${HARNESS_SHA}"
+            echo "ades_sha=$(git -C candidate rev-parse HEAD)"
+            echo "networkit_sha=$(git -C external/networkit rev-parse HEAD)"
+            echo "gcc=$(g++ --version | head -1)"
+            echo "cmake=$(cmake --version | head -1)"
+            echo "python=$(python3 --version)"
+            uname -a
+          } > evidence/pr68/provenance/environment.txt
+          git -C external/networkit submodule status --recursive > evidence/pr68/provenance/networkit-submodules.txt
+          sha256sum \
+            harness/benchmarks/networkit_direct.cpp \
+            harness/tools/generate_pr68_nonroad_holdout.py \
+            harness/tools/run_pr68_networkit_pair.py \
+            harness/tools/run_pr68_networkit_holdout.py \
+            harness/tools/pr68_networkit_adapter/CMakeLists.txt \
+            > evidence/pr68/provenance/harness-sha256.txt
+
+      - name: Upload complete PR68 evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr68-networkit-nonroad-${{ github.event.pull_request.head.sha || github.sha }}
+          path: evidence/pr68
+          if-no-files-found: error
+          retention-days: 90
