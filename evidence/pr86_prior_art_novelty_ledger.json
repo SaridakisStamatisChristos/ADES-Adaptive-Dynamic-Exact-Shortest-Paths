@@ -1,0 +1,117 @@
+{
+  "schema": "ades-pr86-prior-art-novelty-ledger-v1",
+  "target_candidate": "cf7cbc3ed7d9d37ad673a540485a1eee781d47fe",
+  "formal_spec_source": "docs/ALGORITHM.md@pr85-algorithm-spec-reconciliation",
+  "performance_decision": "GO_SCOPED_PRACTICAL_SOTA",
+  "broad_algorithmic_novelty_decision": "NO_GO",
+  "integrated_systems_novelty": "NOVELTY_UNESTABLISHED_POSSIBLY_DISTINCT",
+  "principle": "Failure to find an exact close match is not proof of novelty.",
+  "mechanisms": [
+    {
+      "id": "N1",
+      "name": "exact dynamic SSSP repair under online weight changes",
+      "classification": "PRIOR_ART_COLLISION",
+      "novelty_claim_allowed": false,
+      "sources": [
+        {"title": "An Incremental Algorithm for a Generalization of the Shortest-Path Problem", "year": 1996, "doi": "10.1006/JAGM.1996.0046"},
+        {"title": "Fully Dynamic Algorithms for Maintaining Shortest Paths Trees", "year": 2000, "doi": "10.1006/jagm.1999.1048"},
+        {"title": "Fully Dynamic Shortest Paths in Digraphs with Arbitrary Arc Weights", "year": 2001, "url": "https://www.cs.au.dk/~gerth/alcom-ft/TR/ALCOMFT-TR-01-31.html"}
+      ]
+    },
+    {
+      "id": "N2",
+      "name": "filter increased non-selected-predecessor/non-tree edge without recomputation",
+      "classification": "PRIOR_ART_COLLISION",
+      "novelty_claim_allowed": false,
+      "sources": [
+        {"title": "Incremental parallel computing for continuous queries in dynamic graphs using a transactional model", "year": 2018, "doi": "10.1002/cpe.4500"}
+      ]
+    },
+    {
+      "id": "N3",
+      "name": "alternate shortest-path witness/replacement after affected selected edge increase",
+      "classification": "PRIOR_ART_COLLISION_CONCEPT",
+      "novelty_claim_allowed": false,
+      "ades_specialization": "PR57-v2 gated probe: trigger 256 affected vertices; at most 64 incoming root arcs; exact strict/equal-distance safety checks",
+      "specialization_novelty": "UNESTABLISHED_ENGINEERING_SPECIALIZATION",
+      "sources": [
+        {"title": "A Space Saving Trick for Directed Dynamic Transitive Closure and Shortest Path Algorithms", "year": 2001, "doi": "10.1007/3-540-44679-6_30"},
+        {"title": "Ramalingam-Reps dynamic shortest-path lineage", "year": 1996, "doi": "10.1006/JAGM.1996.0046"}
+      ]
+    },
+    {
+      "id": "N4",
+      "name": "bounded residency of exact per-source SSSP state for arbitrary repeated sources under dynamic updates",
+      "classification": "PARTIAL_PRIOR_ART_COLLISION_AND_NO_CLOSE_MATCH_FOUND",
+      "novelty_claim_allowed": false,
+      "novelty_status": "NOVELTY_UNESTABLISHED",
+      "sources": [
+        {"title": "Effective caching of shortest paths for location-based services", "year": 2012, "doi": "10.1145/2213836.2213872"},
+        {"title": "Refreshment of the shortest path cache with change of single edge", "year": 2017, "doi": "10.1016/j.eswa.2016.08.011"},
+        {"title": "Optimizing Differentially-Maintained Recursive Queries on Dynamic Graphs", "year": 2022, "doi": "10.14778/3551793.3551862"}
+      ],
+      "contemporary_collision": {
+        "title": "ALSSSP: A Zero-Preprocessing Framework for Adaptive Single-Source Shortest Path Computation with Provable Guarantees",
+        "year": 2026,
+        "doi": "10.5281/zenodo.19184398",
+        "priority_use": "NOT_USED_AS_PRE_ADES_PRIOR_ART_WITHOUT_PRIORITY_RESOLUTION"
+      }
+    },
+    {
+      "id": "N5",
+      "name": "cold-work-aware source admission",
+      "classification": "PARTIAL_PRIOR_ART_COLLISION",
+      "novelty_claim_allowed": false,
+      "novelty_status": "GRAPH_SPECIFIC_INSTANTIATION_UNESTABLISHED",
+      "sources": [
+        {"title": "TinyLFU: A Highly Efficient Cache Admission Policy", "year": 2017, "doi": "10.1145/3149371"},
+        {"title": "Boosting Cache Performance by Access Time Measurements", "year": 2023, "doi": "10.1145/3572778"}
+      ]
+    },
+    {
+      "id": "N6",
+      "name": "reuse/recency/update-debt-aware resident eviction under resource budget",
+      "classification": "PRIOR_ART_COLLISION_GENERAL_PRINCIPLE",
+      "novelty_claim_allowed": false,
+      "ades_formula_status": "IMPLEMENTATION_HEURISTIC_NOT_STANDALONE_NOVELTY",
+      "sources": [
+        {"title": "TinyLFU: A Highly Efficient Cache Admission Policy", "year": 2017, "doi": "10.1145/3149371"},
+        {"title": "Boosting Cache Performance by Access Time Measurements", "year": 2023, "doi": "10.1145/3572778"},
+        {"title": "Selection of views to materialize under a maintenance cost constraint", "year": 1998}
+      ]
+    },
+    {
+      "id": "N7",
+      "name": "measured adaptive choice between local incremental repair and full recomputation",
+      "classification": "PRIOR_ART_COLLISION_GENERAL_PRINCIPLE",
+      "novelty_claim_allowed": false,
+      "sources": [
+        {"title": "Cost Model Based Incremental Processing in Dynamic Graphs", "year": 2022, "doi": "10.3390/electronics11040660"}
+      ]
+    },
+    {
+      "id": "N8",
+      "name": "full integrated ADES exact-online architecture",
+      "classification": "NO_CLOSE_MATCH_FOUND",
+      "novelty_claim_allowed": false,
+      "novelty_status": "NOVELTY_UNESTABLISHED_POSSIBLY_DISTINCT_SYSTEMS_INTEGRATION",
+      "reason": "Focused search did not find one pre-ADES source matching the complete combination, but most ingredients have substantial prior art and the search is not an exhaustive systematic review."
+    }
+  ],
+  "allowed_framing": [
+    "ADES integrates established dynamic shortest-path and caching ideas into an exact bounded adaptive-source-residency architecture.",
+    "The focused audit did not find one preexisting system matching the full combination.",
+    "The primary supported contribution is systems integration, exactness/fairness methodology, operating-regime analysis, and measured runtime-memory performance."
+  ],
+  "prohibited_framing": [
+    "ADES invents dynamic SSSP repair.",
+    "ADES is the first to ignore non-tree edge increases.",
+    "ADES invents alternate shortest-path witnesses.",
+    "ADES is the first cost-aware adaptive cache.",
+    "ADES invents choosing incremental repair versus full recomputation using measured cost.",
+    "ADES is the first bounded hot-source shortest-path cache.",
+    "The ADES architecture is novel.",
+    "No prior art exists for ADES."
+  ],
+  "next_action": "Construct publication around surviving scoped performance and systems-integration contribution; keep novelty open unless a narrower claim is subjected to a systematic search."
+}
