@@ -60,7 +60,7 @@ jobs:
           assert 'no-go for broad algorithmic/mechanism novelty' in low
           assert 'possibly distinct systems integration' in low
           assert 'novelty remains unestablished' in low
-          assert 'failure to find a close match is not treated as proof of novelty' in low
+          assert 'fails to find a close match' in low and 'not treated as proof of novelty' in low
           assert 'prior_art_collision' in low
           assert 'no_close_match_found' in low
           assert 'contemporary_collision' in low
