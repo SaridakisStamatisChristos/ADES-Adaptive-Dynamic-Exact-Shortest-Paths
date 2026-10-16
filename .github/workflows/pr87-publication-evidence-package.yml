@@ -111,7 +111,7 @@ jobs:
           assert 'not universal or theoretical' in low
           assert 'adapter-mediated' in low
           assert 'upstream is fixed-source' in low
-          assert 'not population-level inference' in low
+          assert 'not treated as population-level inference' in low or 'not population-level inference' in low
           assert 'not equal actual bytes' in low or 'not equal memory occupancy' in low
           assert 'broad algorithmic novelty is rejected' in low
           assert 'integrated-system originality remains unestablished' in low or 'integrated-system novelty' in low
