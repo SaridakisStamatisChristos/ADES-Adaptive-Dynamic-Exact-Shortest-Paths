@@ -1,0 +1,137 @@
+name: ADES PR83 adversarial publication audit
+
+on:
+  push:
+    branches: [pr83-adversarial-publication-audit]
+  pull_request:
+    paths:
+      - 'tools/audit_pr83_publication_package.py'
+      - 'docs/PR83_ADVERSARIAL_PUBLICATION_AUDIT.md'
+      - 'docs/PUBLICATION_CONTRACT.md'
+      - 'docs/PR81_SCOPED_PRACTICAL_SOTA_DECISION.md'
+      - 'docs/PR82_VELOGRAPHX_REGISTRY_RECONCILIATION.md'
+      - 'evidence/pr81_scoped_sota_decision.json'
+      - 'benchmarks/comparators/registry.json'
+      - 'README.md'
+      - 'tools/validate_comparator_registry.py'
+      - '.github/workflows/pr83-adversarial-publication-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  adversarial-audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact PR83 head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Validate unchanged comparator registry rules first
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/pr83
+          python3 tools/validate_comparator_registry.py \
+            --registry benchmarks/comparators/registry.json \
+            --output evidence/pr83/comparator-summary.json
+
+      - name: Execute claim-hostile publication audit
+        id: audit
+        run: |
+          set +e
+          python3 tools/audit_pr83_publication_package.py \
+            > evidence/pr83/audit.stdout.txt \
+            2> evidence/pr83/audit.stderr.txt
+          rc=$?
+          echo "$rc" > evidence/pr83/audit-exit-code.txt
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          if [ -f evidence/pr83_publication_audit.json ]; then
+            cp evidence/pr83_publication_audit.json evidence/pr83/publication-audit.json
+            cat evidence/pr83/publication-audit.json
+          fi
+          exit 0
+
+      - name: Accept completed support or falsification, reject integrity failure
+        run: |
+          set -euo pipefail
+          test -f evidence/pr83/publication-audit.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('evidence/pr83/publication-audit.json'))
+          allowed={
+            'PASS_SCOPED_SOTA_PACKAGE_WITH_MANDATORY_BOUNDARIES',
+            'FAIL_SCOPED_SOTA_PACKAGE',
+          }
+          assert d['schema']=='ades-pr83-adversarial-publication-audit-v1'
+          assert d['disposition'] in allowed
+          assert d['publication_contract_version']=='1.0'
+          assert d['audited_decision']=='GO_SCOPED_PRACTICAL_SOTA'
+          assert set(d['direct_comparators']) >= {
+            'boost-graph-dijkstra-recompute',
+            'velographx-weighted-sssp-adapter',
+          }
+          assert len(d['mandatory_manuscript_boundaries']) >= 6
+          assert any(x['id']=='H1' and x['status']=='REPAIR_RECOMMENDED' for x in d['findings'])
+          assert any(x['id']=='G1' and x['status']=='OPEN_BOUNDARY' for x in d['findings'])
+          rc=int(open('evidence/pr83/audit-exit-code.txt').read().strip())
+          if d['disposition'].startswith('PASS_'):
+              assert rc==0
+          else:
+              assert rc!=0
+          print('PR83 VALID COMPLETED AUDIT:', d['disposition'])
+          PY
+
+      - name: Prove no performance-code change
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha || '2765eddaeb5cb8ad61a4ffb6f2f7c8ed8c13d5a5' }}"
+          git diff --name-only "$base" HEAD | tee evidence/pr83/changed-files.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          changed=set(Path('evidence/pr83/changed-files.txt').read_text().splitlines())
+          allowed={
+            'tools/audit_pr83_publication_package.py',
+            'docs/PR83_ADVERSARIAL_PUBLICATION_AUDIT.md',
+            '.github/workflows/pr83-adversarial-publication-audit.yml',
+          }
+          extra=changed-allowed
+          if extra:
+              raise SystemExit(f'PR83 modified evidence/performance surfaces unexpectedly: {sorted(extra)}')
+          print('PR83 AUDIT-ONLY DIFF PASS')
+          PY
+
+      - name: Record provenance
+        run: |
+          set -euo pipefail
+          {
+            echo "head_sha=${GITHUB_SHA}"
+            echo "base_sha=${{ github.event.pull_request.base.sha || '2765eddaeb5cb8ad61a4ffb6f2f7c8ed8c13d5a5' }}"
+            echo "publication_contract_version=1.0"
+            echo "pr82_registry_artifact=12028950414"
+            echo "pr82_registry_artifact_digest=sha256:c49707b19722b58fb9bcbaf67b33adcf3bf530c08fb8bc80b49e12ce138fcc20"
+            echo "pr80_artifact=12027088809"
+            echo "pr80_artifact_digest=sha256:617bb4c9c847b8c236dea95caf39119569d66422038be32f5498502298eef100"
+            python3 --version
+            uname -a
+          } > evidence/pr83/provenance.txt
+          sha256sum \
+            tools/audit_pr83_publication_package.py \
+            docs/PR83_ADVERSARIAL_PUBLICATION_AUDIT.md \
+            docs/PUBLICATION_CONTRACT.md \
+            docs/PR81_SCOPED_PRACTICAL_SOTA_DECISION.md \
+            docs/PR82_VELOGRAPHX_REGISTRY_RECONCILIATION.md \
+            evidence/pr81_scoped_sota_decision.json \
+            benchmarks/comparators/registry.json \
+            README.md \
+            > evidence/pr83/input-sha256.txt
+
+      - name: Upload complete PR83 audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr83-adversarial-publication-audit-${{ github.event.pull_request.head.sha || github.sha }}
+          path: evidence/pr83
+          if-no-files-found: error
+          retention-days: 90
