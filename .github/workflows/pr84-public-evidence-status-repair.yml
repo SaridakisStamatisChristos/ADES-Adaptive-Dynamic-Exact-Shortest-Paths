@@ -7,6 +7,8 @@ on:
     paths:
       - 'README.md'
       - 'docs/PR84_PUBLIC_EVIDENCE_STATUS_REPAIR.md'
+      - 'tools/audit_pr83_publication_package.py'
+      - '.github/workflows/pr83-adversarial-publication-audit.yml'
       - '.github/workflows/pr84-public-evidence-status-repair.yml'
 
 permissions:
@@ -32,7 +34,7 @@ jobs:
           assert 'scoped practical sota evidence' in low
           assert 'publication contract v1.0' in low
           assert 'novelty' in low and 'not established' in low
-          assert 'not a universal or theoretical sota claim' in low
+          assert '**not** a universal or theoretical sota claim' in low
           assert 'boost.graph dijkstra recomputation' in low
           assert 'velographx weighted sssp through the qualified arbitrary-source adapter' in low
           assert 'adapter-mediated' in low
@@ -40,7 +42,7 @@ jobs:
           assert 'common auditable persistent-state **cap/accounting contract**' in low
           assert 'not a claim of equal actual memory use or equal process rss' in low
           assert 'slice-level robustness' in low
-          assert 'not** population-level inference' in low or 'not population-level inference' in low
+          assert 'population-level inference' in low and ('**not** population-level inference' in low or 'not population-level inference' in low)
           assert 'historical-cilk graphbolt' in low
           assert 'networkit' in low and 'contextual' in low
           assert 'pr81_scoped_practical_sota_decision.md' in low
@@ -54,7 +56,7 @@ jobs:
           print('PR84 README BOUNDARY PASS')
           PY
 
-      - name: Preserve scientific evidence surfaces unchanged
+      - name: Preserve scientific evidence and performance surfaces unchanged
         run: |
           set -euo pipefail
           base="${{ github.event.pull_request.base.sha || 'b4cff3a5c1220ea6922ac72c62986bd3544a7a75' }}"
@@ -65,12 +67,14 @@ jobs:
           allowed={
             'README.md',
             'docs/PR84_PUBLIC_EVIDENCE_STATUS_REPAIR.md',
+            'tools/audit_pr83_publication_package.py',
+            '.github/workflows/pr83-adversarial-publication-audit.yml',
             '.github/workflows/pr84-public-evidence-status-repair.yml',
           }
           extra=changed-allowed
           if extra:
               raise SystemExit(f'PR84 touched unauthorized surfaces: {sorted(extra)}')
-          print('PR84 DOCUMENTATION-ONLY DIFF PASS')
+          print('PR84 PUBLICATION/AUDIT-ONLY DIFF PASS')
           PY
 
       - name: Verify canonical evidence still exists unchanged by reference
@@ -92,11 +96,29 @@ jobs:
           print('PR84 DIRECT COMPARATOR SET PASS')
           PY
 
+      - name: Verify PR83 audit recognizes H1 as closed
+        run: |
+          set -euo pipefail
+          python3 tools/audit_pr83_publication_package.py > /tmp/pr84-pr83-audit.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('evidence/pr83_publication_audit.json'))
+          assert d['disposition']=='PASS_SCOPED_SOTA_PACKAGE_WITH_MANDATORY_BOUNDARIES'
+          assert d['invalidating_findings']==[]
+          h=[x for x in d['findings'] if x['id']=='H1']
+          assert len(h)==1 and h[0]['status']=='CLOSED_BY_PR84'
+          g=[x for x in d['findings'] if x['id']=='G1']
+          assert len(g)==1 and g[0]['status']=='OPEN_BOUNDARY'
+          print('PR84 H1 CLOSED / G1 OPEN PASS')
+          PY
+
       - name: Record hashes
         run: |
           sha256sum \
             README.md \
             docs/PR84_PUBLIC_EVIDENCE_STATUS_REPAIR.md \
+            tools/audit_pr83_publication_package.py \
+            .github/workflows/pr83-adversarial-publication-audit.yml \
             docs/PUBLICATION_CONTRACT.md \
             docs/PR81_SCOPED_PRACTICAL_SOTA_DECISION.md \
             docs/PR82_VELOGRAPHX_REGISTRY_RECONCILIATION.md \
