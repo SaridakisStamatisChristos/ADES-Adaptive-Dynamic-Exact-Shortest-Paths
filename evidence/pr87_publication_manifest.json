@@ -1,0 +1,189 @@
+{
+  "schema": "ades-pr87-publication-manifest-v1",
+  "publication_contract_version": "1.0",
+  "frozen_candidate": "cf7cbc3ed7d9d37ad673a540485a1eee781d47fe",
+  "performance_decision": "GO_SCOPED_PRACTICAL_SOTA",
+  "broad_algorithmic_novelty_decision": "NO_GO",
+  "integrated_systems_novelty": "NOVELTY_UNESTABLISHED_POSSIBLY_DISTINCT",
+  "headline_claim": "Within the qualified exact-online comparator set and the frozen benchmark scope, ADES establishes or materially improves the runtime-memory Pareto frontier under a defensible subset of mixed-update, repeated-source workloads.",
+  "direct_comparators": [
+    {
+      "id": "boost-graph-dijkstra-recompute",
+      "role": "exact arbitrary-source cold recomputation baseline",
+      "implementation_commit": "fc5dac2c552f945846449fd123a9b8335d5c063a"
+    },
+    {
+      "id": "velographx-weighted-sssp-adapter",
+      "role": "dynamic-maintenance comparator through qualified byte-bounded arbitrary-source adapter",
+      "upstream_commit": "2aa84ce81a180487239c661b65639e5100136075",
+      "adapter_blob": "b09a9f51b2b0300dce2801d0a8afaa49440d45a6",
+      "pair_driver_blob": "44019d478377282b5056a6b07d86d76757f7efc0",
+      "arbitrary_source_semantics": "ADAPTER_MEDIATED_NOT_NATIVE_UPSTREAM"
+    }
+  ],
+  "central_evidence": [
+    {
+      "id": "E1_PR62_BOOST_NY",
+      "pr": 62,
+      "comparator": "boost-graph-dijkstra-recompute",
+      "scope": "executed NY trace slice; source-family breadth explicitly not established",
+      "harness_head": "9c851af7d235c8d508ef72feda3e39dcd5e452f4",
+      "workflow_run": 38711826306,
+      "artifact": 11961213712,
+      "artifact_sha256": "0bd64d43ba48fda4c9e0752ea6acafc1c9fa8ddb7eec2f2fdabc88d1574029ff",
+      "cells": 24,
+      "exact_cells": 24,
+      "total_ratio_comparator_over_ades_geomean": 5.112681,
+      "total_ci95": [4.851231, 5.388222],
+      "query_ratio_comparator_over_ades_geomean": 5.059393,
+      "query_ci95": [4.800065, 5.332731],
+      "total_loss_cells": 0,
+      "query_loss_cells": 0,
+      "minimum_total_cell_ratio": 4.073915,
+      "minimum_query_cell_ratio": 4.032328,
+      "mandatory_correction": "locality_percent=0 caused intended non-uniform labels to use uniform-like source selection; do not use PR62 as evidence of source-policy breadth"
+    },
+    {
+      "id": "E2_PR66_VELOGRAPHX_NY_SOURCE_REUSE",
+      "pr": 66,
+      "comparator": "velographx-weighted-sssp-adapter",
+      "scope": "fresh NY road source-reuse holdout",
+      "harness_head": "26a38d300a475080bf9695d12247c8cb277946ee",
+      "workflow_run": 38730045262,
+      "job": 116405296228,
+      "artifact": 11971060916,
+      "artifact_sha256": "c4a3d64af948afd03daa1e983ee2d75eadf838ca94bdc59103c25ff5575dd299",
+      "persistent_state_budget_bytes": 67108864,
+      "cells": 24,
+      "exact_cells": 24,
+      "total_ratio_comparator_over_ades_geomean": 15.561191,
+      "total_ci95": [14.569887, 16.619942],
+      "query_ratio_comparator_over_ades_geomean": 3.897866,
+      "query_ci95": [2.982019, 5.094991],
+      "total_loss_cells": 0,
+      "query_loss_cells": 0,
+      "minimum_total_cell_ratio": 11.298778,
+      "minimum_query_cell_ratio": 2.290465,
+      "hot_pool_cache_hits": 1164,
+      "rotating_hot_cache_hits": 576,
+      "source_regimes": ["uniform", "hot-pool-2", "hot-pool-4", "rotating-hot-4"]
+    },
+    {
+      "id": "E3_PR80_VELOGRAPHX_NONROAD",
+      "pr": 80,
+      "comparator": "velographx-weighted-sssp-adapter",
+      "scope": "fresh preregistered non-road nested slice",
+      "head": "d7ff1eea51db6c07b312af393c315d6c84bcd661",
+      "workflow_run": 38856829047,
+      "job": 116830072333,
+      "artifact": 12027088809,
+      "artifact_digest": "sha256:617bb4c9c847b8c236dea95caf39119569d66422038be32f5498502298eef100",
+      "persistent_state_budget_bytes": 67108864,
+      "graph_seeds": [8209, 9103, 10037],
+      "workload_seeds": [12007, 13001],
+      "source_regimes": ["uniform", "hot-pool-2", "hot-pool-4", "rotating-hot-4"],
+      "cells": 24,
+      "exact_cells": 24,
+      "total_ratio_comparator_over_ades_geomean": 157.67741734463613,
+      "total_ci95_slice_robustness": [95.32915394070555, 260.8034049682089],
+      "query_ratio_comparator_over_ades_geomean": 30.199378953227633,
+      "query_ci95_slice_robustness": [16.218261047504807, 56.23306262547552],
+      "total_loss_cells": 0,
+      "query_loss_cells": 0,
+      "minimum_total_cell_ratio": 30.15308002929671,
+      "minimum_query_cell_ratio": 6.79739015663136,
+      "velographx_cache_hits": 996,
+      "velographx_cache_misses": 444,
+      "velographx_cache_evictions": 204,
+      "velographx_peak_accounted_state_bytes": 65507832,
+      "ades_peak_accounted_state_bytes": 1802576,
+      "uncertainty_interpretation": "SLICE_LEVEL_ROBUSTNESS_NOT_POPULATION_INFERENCE"
+    }
+  ],
+  "contextual_evidence": [
+    {
+      "id": "PR78_GRAPHBOLT_EMAIL",
+      "scope_class": "CONTEXT_FIXED_SOURCE",
+      "workflow_run": 38855443465,
+      "artifact": 12027485073,
+      "exact_scenarios": 4,
+      "maintenance_ratio_graphbolt_over_ades_geomean": 389.7479595838792,
+      "total_ratio_graphbolt_over_ades_geomean": 31.455808022699205
+    },
+    {
+      "id": "PR79_GRAPHBOLT_GNUTELLA",
+      "scope_class": "CONTEXT_FIXED_SOURCE",
+      "workflow_run": 38855853200,
+      "artifact": 12027381258,
+      "exact_scenarios": 4,
+      "maintenance_ratio_graphbolt_over_ades_geomean_approx": 63.73,
+      "total_ratio_graphbolt_over_ades_geomean_approx": 22.71
+    },
+    {
+      "id": "NETWORKIT_LATER_NONROAD",
+      "scope_class": "CONTEXT_ASSUMPTION_SEPARATED",
+      "reason": "qualified tested scope is not equivalent to the complete directed arbitrary-source C-SOTA contract"
+    }
+  ],
+  "negative_and_corrective_evidence": [
+    {
+      "id": "NEG_PR57_V1",
+      "status": "REJECTED",
+      "finding": "eager alternate-witness probing caused a statistically supported regression in one broad-matrix cell",
+      "ratio_pr55_over_pr57_v1": 0.910073,
+      "ci95": [0.872704, 0.949041],
+      "accepted_repair": "PR57-v2 large-repair-gated bounded witness rescue"
+    },
+    {
+      "id": "NEG_CONTROLLER_STRUCTURAL_PROXY",
+      "status": "PARTIALLY_REFUTED",
+      "finding": "large affected subtree is not sufficient evidence that abort+rebuild is economically preferable",
+      "next_hypothesis": "estimate remaining local-repair cost versus rebuild cost directly"
+    },
+    {
+      "id": "CORRECTION_PR62_SOURCE_BREADTH",
+      "status": "CORRECTED_INTERPRETATION",
+      "finding": "PR62 numerical execution remains valid, but intended non-uniform labels do not demonstrate distinct source-policy breadth"
+    },
+    {
+      "id": "HARNESS_PR80_FIRST_RUN",
+      "status": "PRE_TIMING_HARNESS_FAILURE",
+      "finding": "oracle output directory missing; repaired before admitted comparative timing without changing frozen experiment variables"
+    },
+    {
+      "id": "AUDIT_PR83_PR84",
+      "status": "BOUNDARY_REPAIRS",
+      "finding": "brittle prose/Markdown predicates were repaired; final audit retains zero invalidating findings, closes README drift and keeps novelty open until PR86"
+    }
+  ],
+  "claim_status": {
+    "C1": "SUPPORTED_FOR_CENTRAL_PERFORMANCE_EVIDENCE",
+    "C2": "SUPPORTED",
+    "C3": "SUPPORTED",
+    "C4": "SUPPORTED_IN_TESTED_REGIMES",
+    "C5_C9": "NOT_ELEVATED_BY_PR87",
+    "C-SOTA": "SUPPORTED_WITHIN_FROZEN_SCOPE",
+    "BROAD_ALGORITHMIC_NOVELTY": "REJECTED",
+    "INTEGRATED_SYSTEMS_NOVELTY": "UNESTABLISHED_POSSIBLY_DISTINCT"
+  },
+  "audit_chain": [
+    {"pr": 81, "purpose": "scoped practical-SOTA synthesis", "head": "775d7d8e8a99658c5eb18a57f8e32a5411b4bb3e"},
+    {"pr": 82, "purpose": "VeloGraphX DIRECT registry reconciliation", "head": "2765eddaeb5cb8ad61a4ffb6f2f7c8ed8c13d5a5", "artifact": 12028950414, "artifact_digest": "sha256:c49707b19722b58fb9bcbaf67b33adcf3bf530c08fb8bc80b49e12ce138fcc20"},
+    {"pr": 83, "purpose": "adversarial publication audit", "head": "b4cff3a5c1220ea6922ac72c62986bd3544a7a75", "workflow_run": 38859960130, "job": 116839760404, "artifact": 12028887027, "artifact_digest": "sha256:8d33bd7c4f68a04cf8d449ff3ad9b625601a068d508bcdc69de3207f85864156"},
+    {"pr": 84, "purpose": "public evidence-status repair and H1 closure", "head": "b0a3c8707304645ecfba720d51212c03b187d375"},
+    {"pr": 85, "purpose": "formal algorithm/spec reconciliation", "head": "a8974f536bbbcc13e8b4111b53d286f69475e0be", "workflow_run": 38861009705},
+    {"pr": 86, "purpose": "prior-art and novelty audit", "head": "d472d59c0e84d20e1722f3837a75066ba22a3659", "workflow_run": 38861798505}
+  ],
+  "manuscript_boundaries": [
+    "Scoped practical SOTA evidence only; never universal or theoretical SOTA.",
+    "VeloGraphX arbitrary-source comparison is adapter-mediated.",
+    "The common persistent-state budget is a cap/accounting contract, not equal actual bytes or RSS.",
+    "PR80 confidence intervals are nested-slice robustness evidence, not population-level graph/workload inference.",
+    "PR62 does not establish source-policy breadth; PR66 re-earns that breadth.",
+    "NetworKit and historical-Cilk GraphBolt remain contextual for complete C-SOTA.",
+    "Empirical performance does not establish algorithmic novelty or a new asymptotic bound.",
+    "Failure to find an exact integrated prior-art match is not proof of novelty."
+  ],
+  "recommended_title": "ADES: Exact Adaptive Source Residency for Online Dynamic Shortest Paths Under Bounded State",
+  "next_stage": "MANUSCRIPT_AND_INDEPENDENT_ARTIFACT_REPRODUCTION"
+}
