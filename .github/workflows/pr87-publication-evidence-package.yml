@@ -106,13 +106,14 @@ jobs:
           from pathlib import Path
           text=Path('paper/ADES_MANUSCRIPT_SCAFFOLD.md').read_text()
           low=text.lower()
+          plain=low.replace('**','')
           assert 'ades: exact adaptive source residency for online dynamic shortest paths under bounded state' in low
           assert 'scoped practical' in low
           assert 'not universal or theoretical' in low
           assert 'adapter-mediated' in low
           assert 'upstream is fixed-source' in low
           assert 'not treated as population-level inference' in low or 'not population-level inference' in low
-          assert 'not equal actual bytes' in low or 'not equal memory occupancy' in low
+          assert 'not equal actual bytes' in plain or 'not equal memory occupancy' in plain
           assert 'broad algorithmic novelty is rejected' in low
           assert 'integrated-system originality remains unestablished' in low or 'integrated-system novelty' in low
           assert 'locality_percent=0' in text
