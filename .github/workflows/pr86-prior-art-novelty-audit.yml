@@ -1,0 +1,121 @@
+name: ADES PR86 prior-art novelty audit
+
+on:
+  push:
+    branches: [pr86-prior-art-novelty-audit]
+  pull_request:
+    paths:
+      - 'docs/PR86_PRIOR_ART_NOVELTY_AUDIT.md'
+      - 'evidence/pr86_prior_art_novelty_ledger.json'
+      - '.github/workflows/pr86-prior-art-novelty-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  novelty-boundary:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact PR86 head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Validate machine-readable prior-art ledger
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          d=json.load(open('evidence/pr86_prior_art_novelty_ledger.json'))
+          assert d['schema']=='ades-pr86-prior-art-novelty-ledger-v1'
+          assert d['target_candidate']=='cf7cbc3ed7d9d37ad673a540485a1eee781d47fe'
+          assert d['performance_decision']=='GO_SCOPED_PRACTICAL_SOTA'
+          assert d['broad_algorithmic_novelty_decision']=='NO_GO'
+          assert d['integrated_systems_novelty']=='NOVELTY_UNESTABLISHED_POSSIBLY_DISTINCT'
+          by_id={x['id']:x for x in d['mechanisms']}
+          assert set(by_id)=={'N1','N2','N3','N4','N5','N6','N7','N8'}
+          assert by_id['N1']['classification']=='PRIOR_ART_COLLISION'
+          assert by_id['N2']['classification']=='PRIOR_ART_COLLISION'
+          assert by_id['N3']['classification']=='PRIOR_ART_COLLISION_CONCEPT'
+          assert by_id['N4']['classification']=='PARTIAL_PRIOR_ART_COLLISION_AND_NO_CLOSE_MATCH_FOUND'
+          assert by_id['N4']['novelty_status']=='NOVELTY_UNESTABLISHED'
+          assert by_id['N5']['classification']=='PARTIAL_PRIOR_ART_COLLISION'
+          assert by_id['N6']['classification']=='PRIOR_ART_COLLISION_GENERAL_PRINCIPLE'
+          assert by_id['N7']['classification']=='PRIOR_ART_COLLISION_GENERAL_PRINCIPLE'
+          assert by_id['N8']['classification']=='NO_CLOSE_MATCH_FOUND'
+          assert by_id['N8']['novelty_status']=='NOVELTY_UNESTABLISHED_POSSIBLY_DISTINCT_SYSTEMS_INTEGRATION'
+          assert all(x['novelty_claim_allowed'] is False for x in d['mechanisms'])
+          assert 'Failure to find an exact close match is not proof of novelty.'==d['principle']
+          print('PR86 PRIOR-ART LEDGER PASS')
+          PY
+
+      - name: Enforce conservative human-readable novelty wording
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          t=Path('docs/PR86_PRIOR_ART_NOVELTY_AUDIT.md').read_text()
+          low=t.lower()
+          assert 'no-go for broad algorithmic/mechanism novelty' in low
+          assert 'possibly distinct systems integration' in low
+          assert 'novelty remains unestablished' in low
+          assert 'failure to find a close match is not treated as proof of novelty' in low
+          assert 'prior_art_collision' in low
+          assert 'no_close_match_found' in low
+          assert 'contemporary_collision' in low
+          assert 'does not reverse or weaken' in low
+          assert 'go — scoped practical sota' in low
+          assert 'the ades architecture is novel' in low  # appears only in the prohibited list
+          assert 'not currently allowed' in low
+          assert 'do not rewrite mechanisms merely to manufacture novelty' in low
+          print('PR86 HUMAN NOVELTY BOUNDARY PASS')
+          PY
+
+      - name: Preserve PR85 target specification and scoped-SOTA surfaces
+        run: |
+          set -euo pipefail
+          grep -Fq 'tight non-selected-parent filter' docs/ALGORITHM.md
+          grep -Fq 'large-repair-gated alternate-witness rescue' docs/ALGORITHM.md
+          grep -Fq 'publication-level novelty until a dedicated literature preflight establishes it' docs/ALGORITHM.md
+          grep -Fq 'scoped practical SOTA evidence' README.md
+          grep -Fq 'scholarly novelty' README.md
+          grep -Fq 'not established' README.md
+          python3 tools/validate_comparator_registry.py \
+            --registry benchmarks/comparators/registry.json \
+            --output /tmp/pr86-registry.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/pr86-registry.json'))
+          assert set(d['direct_external_comparators']) >= {'boost-graph-dijkstra-recompute','velographx-weighted-sssp-adapter'}
+          print('PR86 EXISTING CLAIM SURFACES PASS')
+          PY
+
+      - name: Prove PR86 is audit-only
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha || 'a8974f536bbbcc13e8b4111b53d286f69475e0be' }}"
+          git diff --name-only "$base" HEAD | tee /tmp/pr86-changed.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          changed=set(Path('/tmp/pr86-changed.txt').read_text().splitlines())
+          allowed={
+            'docs/PR86_PRIOR_ART_NOVELTY_AUDIT.md',
+            'evidence/pr86_prior_art_novelty_ledger.json',
+            '.github/workflows/pr86-prior-art-novelty-audit.yml',
+          }
+          extra=changed-allowed
+          if extra:
+              raise SystemExit(f'PR86 modified non-audit surfaces: {sorted(extra)}')
+          print('PR86 AUDIT-ONLY DIFF PASS')
+          PY
+
+      - name: Record audit hashes
+        run: |
+          sha256sum \
+            docs/PR86_PRIOR_ART_NOVELTY_AUDIT.md \
+            evidence/pr86_prior_art_novelty_ledger.json \
+            docs/ALGORITHM.md \
+            README.md \
+            docs/PUBLICATION_CONTRACT.md \
+            benchmarks/comparators/registry.json
