@@ -23,6 +23,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
 
       - name: Run unchanged frozen comparator validator
         run: |
@@ -70,7 +71,6 @@ jobs:
           assert 'velographx-weighted-sssp-adapter' in summary['direct_external_comparators']
           assert 'boost-graph-dijkstra-recompute' in summary['direct_external_comparators']
           assert summary['headline_sota_ready'] is True
-          # Old evidence classes must remain represented; PR82 is not allowed to erase inconvenient entries.
           assert 'networkit-dyndijkstra' in summary['ineligible_external_comparators']
           assert 'ramalingam-reps-1996' in summary['pending_external_comparators']
           assert 'felipe31-ramalingam-reps' in summary['pending_external_comparators']
