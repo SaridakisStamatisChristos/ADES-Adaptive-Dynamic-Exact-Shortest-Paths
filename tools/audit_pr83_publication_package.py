@@ -68,12 +68,16 @@ def main() -> int:
     # C — VeloGraphX arbitrary-source semantics must remain explicitly adapter-mediated.
     velo = direct.get("velographx-weighted-sssp-adapter", {})
     semantics_text = json.dumps(velo.get("declared_semantics", {}), sort_keys=True).lower()
+    pr81_lower = pr81.lower()
+    pr82_lower = pr82.lower()
     c_ok = (
         "adapter" in semantics_text
         and ("fixed source" in semantics_text or "fixed-source" in semantics_text)
-        and "adapter-mediated" in pr82.lower()
-        and "upstream VeloGraphX natively provides arbitrary-source queries" in pr82
-        and "native arbitrary-source" in pr81
+        and "adapter-mediated" in pr82_lower
+        and "upstream velographx natively provides arbitrary-source queries" in pr82_lower
+        and "does not mean" in pr82_lower
+        and "natively at arbitrary-source semantics" in pr81_lower
+        and "transparent byte-bounded adapter" in pr81_lower
     )
     findings.append(finding(
         "C1", "HIGH", "PASS_WITH_BOUNDARY" if c_ok else "FAIL",
