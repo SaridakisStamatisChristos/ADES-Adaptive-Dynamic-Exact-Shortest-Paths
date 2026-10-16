@@ -104,7 +104,10 @@ jobs:
             -v "$ROOT:$ROOT" -w "$ROOT" \
             "$CILK_IMAGE" bash -lc '
               set -euo pipefail
-              gcc -std=c11 -O3 -DNDEBUG -fPIC -fvisibility=hidden \
+              # mimalloc 1.6.0 uses GNU inline asm (for example `asm volatile("pause")`).
+              # Build it as GNU C11 rather than strict ISO C11; this changes no source
+              # bytes and leaves the pinned allocator revision and GraphBolt matrix intact.
+              gcc -std=gnu11 -O3 -DNDEBUG -fPIC -fvisibility=hidden \
                 -ftls-model=initial-exec -DMI_SHARED_LIB -DMI_SHARED_LIB_EXPORT \
                 -Iexternal/mimalloc/include -Iexternal/mimalloc/src \
                 external/mimalloc/src/stats.c \
@@ -220,6 +223,7 @@ jobs:
             echo "portability_patch_id=${PATCH_ID}"
             echo "parallel_mode=CILK"
             echo "cilk_workers=4"
+            echo "mimalloc_language_mode=gnu11; strict-c11 preflight failed before GraphBolt compilation because mimalloc v1.6.0 uses GNU inline asm"
             echo "qualification_exit_code=${{ steps.qualify.outputs.exit_code }}"
             echo "performance_executed=false"
             uname -a
