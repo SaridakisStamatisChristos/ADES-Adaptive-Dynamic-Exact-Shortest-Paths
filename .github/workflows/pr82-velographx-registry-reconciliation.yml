@@ -1,0 +1,124 @@
+name: ADES PR82 VeloGraphX registry reconciliation
+
+on:
+  push:
+    branches: [pr82-velographx-registry-reconciliation]
+  pull_request:
+    paths:
+      - 'benchmarks/comparators/registry.json'
+      - 'benchmarks/velographx_direct.cpp'
+      - 'tools/run_pr65_velographx_head_to_head.py'
+      - 'tools/validate_comparator_registry.py'
+      - 'docs/PR82_VELOGRAPHX_REGISTRY_RECONCILIATION.md'
+      - '.github/workflows/pr82-velographx-registry-reconciliation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  registry-evidence:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact PR82 head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Run unchanged frozen comparator validator
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/pr82
+          python3 tools/validate_comparator_registry.py \
+            --registry benchmarks/comparators/registry.json \
+            --output evidence/pr82/comparator-summary.json
+          cat evidence/pr82/comparator-summary.json
+
+      - name: Enforce VeloGraphX DIRECT evidence contract
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          registry=json.load(open('benchmarks/comparators/registry.json'))
+          summary=json.load(open('evidence/pr82/comparator-summary.json'))
+          by_id={x['id']:x for x in registry['comparators']}
+          expected_gates=[
+            'exact_answers','online_operations','directed_graphs','nonnegative_weighted_graphs',
+            'weight_increases','weight_decreases','no_future_knowledge','arbitrary_query_sources_supported',
+            'matched_trace_adapter','independent_oracle_validation','persistent_memory_budget_enforceable',
+            'persistent_memory_accounting_auditable','preprocessing_semantics_declared','timing_boundary_declared',
+            'implementation_pinned','license_compatible_for_reproduction'
+          ]
+          assert registry['contract_version']=='1.0'
+          assert registry['hard_gates']==expected_gates
+          assert 'boost-graph-dijkstra-recompute' in by_id
+          assert by_id['boost-graph-dijkstra-recompute']['status']=='DIRECT'
+          v=by_id['velographx-weighted-sssp-adapter']
+          assert v['status']=='DIRECT'
+          assert v['kind']=='external_implementation'
+          assert v['implementation']=={
+            'repository':'https://github.com/sauravsingla/VeloGraphX',
+            'commit':'2aa84ce81a180487239c661b65639e5100136075',
+            'primary_path':'include/velographx/incremental/weighted_sssp.hpp',
+            'license':'Apache-2.0',
+            'pinned':True,
+          }
+          assert set(v['gates'])==set(expected_gates)
+          assert all(v['gates'][g]=='PASS' for g in expected_gates)
+          refs={r['url'] for r in v['references'] if 'url' in r}
+          for n in (64,65,66,80):
+              assert f'https://github.com/SaridakisStamatisChristos/ADES-Adaptive-Dynamic-Exact-Shortest-Paths/pull/{n}' in refs
+          assert 'velographx-weighted-sssp-adapter' in summary['direct_external_comparators']
+          assert 'boost-graph-dijkstra-recompute' in summary['direct_external_comparators']
+          assert summary['headline_sota_ready'] is True
+          assert 'networkit-dyndijkstra' in summary['ineligible_external_comparators']
+          assert 'ramalingam-reps-1996' in summary['pending_external_comparators']
+          assert 'felipe31-ramalingam-reps' in summary['pending_external_comparators']
+          assert 'routingkit-cch' in summary['context_external_comparators']
+          assert 'd-star-lite' in summary['context_external_comparators']
+          print('PR82 VELOGRAPHX DIRECT REGISTRY PASS')
+          PY
+
+      - name: Verify frozen adapter and pair-driver blobs
+        run: |
+          set -euo pipefail
+          test "$(git hash-object benchmarks/velographx_direct.cpp)" = "b09a9f51b2b0300dce2801d0a8afaa49440d45a6"
+          test "$(git hash-object tools/run_pr65_velographx_head_to_head.py)" = "44019d478377282b5056a6b07d86d76757f7efc0"
+
+      - name: Prove PR82 is bookkeeping-only for performance code
+        run: |
+          set -euo pipefail
+          git diff --name-only "${{ github.event.pull_request.base.sha || '775d7d8e8a99658c5eb18a57f8e32a5411b4bb3e' }}" HEAD \
+            | tee evidence/pr82/changed-files.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          changed=set(Path('evidence/pr82/changed-files.txt').read_text().splitlines())
+          allowed={
+            'benchmarks/comparators/registry.json',
+            'docs/PR82_VELOGRAPHX_REGISTRY_RECONCILIATION.md',
+            '.github/workflows/pr82-velographx-registry-reconciliation.yml',
+          }
+          extra=changed-allowed
+          if extra:
+              raise SystemExit(f'PR82 modified non-bookkeeping surfaces: {sorted(extra)}')
+          print('PR82 BOOKKEEPING-ONLY DIFF PASS')
+          PY
+
+      - name: Record evidence hashes
+        run: |
+          set -euo pipefail
+          sha256sum \
+            benchmarks/comparators/registry.json \
+            docs/PR82_VELOGRAPHX_REGISTRY_RECONCILIATION.md \
+            benchmarks/velographx_direct.cpp \
+            tools/run_pr65_velographx_head_to_head.py \
+            tools/validate_comparator_registry.py \
+            > evidence/pr82/sha256.txt
+
+      - name: Upload PR82 evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr82-velographx-registry-${{ github.event.pull_request.head.sha || github.sha }}
+          path: evidence/pr82
+          if-no-files-found: error
+          retention-days: 90
