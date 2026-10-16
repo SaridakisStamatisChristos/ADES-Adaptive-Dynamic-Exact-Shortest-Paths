@@ -96,7 +96,7 @@ jobs:
           grep -Fq 'GO — SCOPED PRACTICAL SOTA' docs/PR81_SCOPED_PRACTICAL_SOTA_DECISION.md
           grep -Fq 'does **not** assert universal dynamic-shortest-path SOTA' docs/PR81_SCOPED_PRACTICAL_SOTA_DECISION.md
           grep -Fq 'remaining risk is **claim breadth**' docs/PR81_SCOPED_PRACTICAL_SOTA_DECISION.md
-          ! grep -Fq 'ADES is the world'''s fastest dynamic shortest-path algorithm.' docs/PR81_SCOPED_PRACTICAL_SOTA_DECISION.md || \
+          ! grep -Fq "ADES is the world's fastest dynamic shortest-path algorithm." docs/PR81_SCOPED_PRACTICAL_SOTA_DECISION.md || \
             grep -Fq 'Do **not** claim' docs/PR81_SCOPED_PRACTICAL_SOTA_DECISION.md
 
       - name: Record PR81 evidence hashes
