@@ -1,0 +1,56 @@
+name: ADES PR54 matched core benchmark
+
+on:
+  pull_request:
+    paths:
+      - 'include/ades/graph.hpp'
+      - 'include/ades/shortest_paths.hpp'
+      - 'include/ades/memory_budget.hpp'
+      - 'src/graph.cpp'
+      - 'src/shortest_paths.cpp'
+      - 'src/dynamic_repair.cpp'
+      - 'tests/pr54_core.cpp'
+      - 'tools/run_pr54_core_benchmark.py'
+      - '.github/workflows/pr54-core-benchmark.yml'
+
+jobs:
+  matched-benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+        with:
+          path: candidate
+      - name: Checkout frozen main baseline
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: baseline
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Build baseline and candidate runners
+        run: |
+          cmake -S baseline -B baseline/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build baseline/build -j2 --target ades_pilot_profile
+          cmake -S candidate -B candidate/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build candidate/build -j2 --target ades_pilot_profile ades_workload_v2 ades_pr54_core_tests
+          candidate/build/ades_pr54_core_tests
+      - name: Generate common deterministic graph
+        run: |
+          mkdir -p shared/graphs
+          python3 candidate/tools/generate_synthetic_graphs.py shared/graphs --only syn-grid-224x224-v1
+      - name: Run matched main vs PR54 benchmark
+        run: |
+          python3 candidate/tools/run_pr54_core_benchmark.py \
+            --baseline-runner baseline/build/ades_pilot_profile \
+            --candidate-runner candidate/build/ades_pilot_profile \
+            --generator candidate/build/ades_workload_v2 \
+            --graph shared/graphs/syn-grid-224x224-v1.gr \
+            --out candidate/results/pr54-core-bench
+      - name: Upload development evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr54-core-benchmark-${{ github.sha }}
+          path: candidate/results/pr54-core-bench/
+          retention-days: 90
