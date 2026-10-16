@@ -1,0 +1,135 @@
+name: ADES PR76 GraphBolt historical Cilk qualification
+
+on:
+  push:
+    branches: [pr76-graphbolt-cilk-qualification]
+  pull_request:
+    paths:
+      - 'docs/PR76_GRAPHBOLT_CILK_QUALIFICATION.md'
+      - '.github/workflows/pr76-graphbolt-cilk-qualification.yml'
+      - 'tools/run_pr69_graphbolt_qualification.py'
+
+permissions:
+  contents: read
+
+jobs:
+  discover-cilk-toolchain:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact PR76 head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Freeze Stage-A contract identity
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/pr76/stage-a
+          sha256sum docs/PR76_GRAPHBOLT_CILK_QUALIFICATION.md \
+            > evidence/pr76/stage-a/contract-sha256.txt
+          docker --version | tee evidence/pr76/stage-a/docker-version.txt
+
+      - name: Pull legacy Docker Official GCC 7.5.0 image and record immutable digest
+        id: image
+        run: |
+          set -euo pipefail
+          docker pull gcc:7.5.0
+          digest=$(docker image inspect gcc:7.5.0 --format '{{index .RepoDigests 0}}')
+          test -n "$digest"
+          case "$digest" in gcc@sha256:*) ;; *) echo "unexpected RepoDigest: $digest" >&2; exit 1;; esac
+          echo "$digest" | tee evidence/pr76/stage-a/container-repodigest.txt
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          docker image inspect gcc:7.5.0 > evidence/pr76/stage-a/container-inspect.json
+
+      - name: Compile and execute standalone Cilk Plus probe
+        id: probe
+        run: |
+          set +e
+          cat > evidence/pr76/stage-a/cilk_probe.cpp <<'CPP'
+          #include <cilk/cilk.h>
+          #include <cilk/cilk_api.h>
+          #include <iostream>
+
+          int main() {
+            long long sum = 0;
+            cilk_for (int i = 0; i < 1000; ++i) {
+              __sync_fetch_and_add(&sum, static_cast<long long>(i));
+            }
+            int workers = __cilkrts_get_nworkers();
+            std::cout << "workers=" << workers << " sum=" << sum << "\n";
+            return (sum == 499500 && workers >= 1) ? 0 : 2;
+          }
+          CPP
+
+          docker run --rm \
+            -e CILK_NWORKERS=4 \
+            -v "$PWD/evidence/pr76/stage-a:/work" \
+            gcc:7.5.0 \
+            bash -lc '
+              set -euo pipefail
+              cat /etc/os-release | tee /work/container-os-release.txt
+              g++ --version | tee /work/gxx-version.txt
+              g++ -std=c++14 -O2 -fcilkplus /work/cilk_probe.cpp -o /work/cilk_probe -lcilkrts
+              ldd /work/cilk_probe | tee /work/cilk-probe-ldd.txt
+              /work/cilk_probe | tee /work/cilk-probe-output.txt
+            '
+          rc=$?
+          echo "$rc" > evidence/pr76/stage-a/probe-exit-code.txt
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Classify Stage-A result
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path('evidence/pr76/stage-a')
+          rc = int((root / 'probe-exit-code.txt').read_text().strip())
+          digest = (root / 'container-repodigest.txt').read_text().strip()
+          output = (root / 'cilk-probe-output.txt').read_text().strip() if (root / 'cilk-probe-output.txt').exists() else ''
+          success = rc == 0 and 'sum=499500' in output and digest.startswith('gcc@sha256:')
+          result = {
+              'schema': 'ades-pr76-cilk-toolchain-discovery-v1',
+              'image_tag': 'gcc:7.5.0',
+              'image_repodigest': digest,
+              'cilk_probe_exit_code': rc,
+              'cilk_probe_output': output,
+              'toolchain_usable': success,
+              'graphbolt_semantic_matrix_executed': False,
+              'performance_executed': False,
+              'disposition': (
+                  'CILK_TOOLCHAIN_DISCOVERED_NOT_SEMANTICALLY_QUALIFIED'
+                  if success else 'CILK_TOOLCHAIN_DISCOVERY_FAILED'
+              ),
+          }
+          (root / 'summary.json').write_text(json.dumps(result, indent=2, sort_keys=True) + '\n')
+          print(json.dumps(result, indent=2, sort_keys=True))
+          if not success:
+              raise SystemExit('legacy Cilk toolchain discovery failed')
+          PY
+
+      - name: Record Stage-A provenance
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "head_sha=${GITHUB_SHA}"
+            echo "stage=A-toolchain-discovery-only"
+            echo "docker_tag=gcc:7.5.0"
+            echo "docker_repodigest=${{ steps.image.outputs.digest }}"
+            echo "probe_exit_code=${{ steps.probe.outputs.exit_code }}"
+            echo "graphbolt_semantic_matrix_executed=false"
+            echo "performance_executed=false"
+            uname -a
+          } > evidence/pr76/stage-a/provenance.txt
+
+      - name: Upload PR76 Stage-A evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr76-cilk-toolchain-discovery-${{ github.event.pull_request.head.sha || github.sha }}
+          path: evidence/pr76/stage-a
+          if-no-files-found: error
+          retention-days: 90
