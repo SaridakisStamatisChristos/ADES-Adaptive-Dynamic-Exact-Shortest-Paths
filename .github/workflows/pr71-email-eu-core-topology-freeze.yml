@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+env:
+  PR71_GZIP_SHA256: 4b47acdb80197b085fe63c819c357ae488131ee904ed93d1b219a68b0f9e245f
+  PR71_CANONICAL_SHA256: f0cfcb0a49f8d12fa6a92061a93d07becd8808185494e9d73d4f6695809e9d5e
+
 jobs:
   freeze-topology:
     runs-on: ubuntu-24.04
@@ -42,42 +46,46 @@ jobs:
           test -s evidence/pr71/source/email-Eu-core.txt.gz
           curl --version | head -1 > evidence/pr71/provenance/curl-version.txt
 
-      - name: Validate and canonicalize external topology
+      - name: Validate and canonicalize hash-pinned external topology
         id: freeze
         run: |
           set +e
           python3 tools/freeze_pr71_email_eu_core.py \
             --input-gz evidence/pr71/source/email-Eu-core.txt.gz \
-            --out evidence/pr71/frozen
+            --out evidence/pr71/frozen \
+            --expected-gzip-sha256 "$PR71_GZIP_SHA256" \
+            --expected-canonical-sha256 "$PR71_CANONICAL_SHA256"
           rc=$?
           echo "$rc" > evidence/pr71/freeze-exit-code.txt
           echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
           exit 0
 
-      - name: Enforce preregistered structural qualification
+      - name: Enforce canonical structural qualification
         run: |
           python3 - <<'PY'
           import json
           from pathlib import Path
-          p = Path('evidence/pr71/frozen/manifest.json')
-          if not p.exists():
-              raise SystemExit('missing PR71 manifest')
-          d = json.loads(p.read_text())
-          assert d['schema'] == 'ades-pr71-email-eu-core-topology-freeze-v1'
+          d = json.loads(Path('evidence/pr71/frozen/manifest.json').read_text())
+          assert d['schema'] == 'ades-pr71-email-eu-core-topology-freeze-v2'
           assert d['source_url'] == 'https://snap.stanford.edu/data/email-Eu-core.txt.gz'
+          assert d['graph_transform_applied'] is False
           assert d['observed']['unique_nodes'] == 1005
           assert d['observed']['directed_edges'] == 25571
+          assert d['observed']['self_loops'] == 642
           assert d['observed']['largest_wcc_nodes'] == 986
           assert d['observed']['largest_wcc_edges'] == 25552
           assert d['observed']['largest_scc_nodes'] == 803
           assert d['observed']['largest_scc_edges'] == 24729
-          assert len(d['gzip_sha256']) == 64
-          assert len(d['canonical_edge_list_sha256']) == 64
+          assert d['gzip_sha256'] == '4b47acdb80197b085fe63c819c357ae488131ee904ed93d1b219a68b0f9e245f'
+          assert d['canonical_edge_list_sha256'] == 'f0cfcb0a49f8d12fa6a92061a93d07becd8808185494e9d73d4f6695809e9d5e'
+          assert d['hashes_frozen_in_invocation'] is True
+          assert d['parser_rules']['self_loops_allowed'] is True
+          assert d['parser_rules']['self_loops_preserved'] is True
           assert d['disposition'] == 'QUALIFIED_EXTERNAL_DIRECTED_TOPOLOGY_EMAIL_EU_CORE'
-          print('PR71 STRUCTURAL FREEZE PASS')
+          print('PR71 CANONICAL STRUCTURAL FREEZE PASS')
           print('gzip_sha256=', d['gzip_sha256'])
           print('canonical_edge_list_sha256=', d['canonical_edge_list_sha256'])
-          print('hashes_frozen_in_invocation=', d['hashes_frozen_in_invocation'])
+          print('self_loops=', d['observed']['self_loops'])
           PY
 
       - name: Record R7 provenance
@@ -94,6 +102,11 @@ jobs:
             echo "gate_type=external topology identity/provenance only"
             echo "comparative_timing_executed=false"
             echo "native_weight_claim=false"
+            echo "graph_transform_applied=false"
+            echo "self_loop_policy=preserve exact published source artifact; frozen count 642"
+            echo "discovery_failure_run=38841406553; rejected initial self-loop assumption before any timing"
+            echo "expected_gzip_sha256=${PR71_GZIP_SHA256}"
+            echo "expected_canonical_sha256=${PR71_CANONICAL_SHA256}"
             echo "freeze_exit_code=${{ steps.freeze.outputs.exit_code }}"
             python3 --version
             uname -a
