@@ -46,7 +46,7 @@ jobs:
           assert by_id['N8']['classification']=='NO_CLOSE_MATCH_FOUND'
           assert by_id['N8']['novelty_status']=='NOVELTY_UNESTABLISHED_POSSIBLY_DISTINCT_SYSTEMS_INTEGRATION'
           assert all(x['novelty_claim_allowed'] is False for x in d['mechanisms'])
-          assert 'Failure to find an exact close match is not proof of novelty.'==d['principle']
+          assert d['principle']=='Failure to find an exact close match is not proof of novelty.'
           print('PR86 PRIOR-ART LEDGER PASS')
           PY
 
@@ -55,8 +55,7 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          t=Path('docs/PR86_PRIOR_ART_NOVELTY_AUDIT.md').read_text()
-          low=t.lower()
+          low=Path('docs/PR86_PRIOR_ART_NOVELTY_AUDIT.md').read_text().lower()
           assert 'no-go for broad algorithmic/mechanism novelty' in low
           assert 'possibly distinct systems integration' in low
           assert 'novelty remains unestablished' in low
@@ -66,7 +65,7 @@ jobs:
           assert 'contemporary_collision' in low
           assert 'does not reverse or weaken' in low
           assert 'go — scoped practical sota' in low
-          assert 'the ades architecture is novel' in low  # appears only in the prohibited list
+          assert 'the ades architecture is novel' in low  # prohibited example only
           assert 'not currently allowed' in low
           assert 'do not rewrite mechanisms merely to manufacture novelty' in low
           print('PR86 HUMAN NOVELTY BOUNDARY PASS')
@@ -75,12 +74,18 @@ jobs:
       - name: Preserve PR85 target specification and scoped-SOTA surfaces
         run: |
           set -euo pipefail
-          grep -Fq 'tight non-selected-parent filter' docs/ALGORITHM.md
-          grep -Fq 'large-repair-gated alternate-witness rescue' docs/ALGORITHM.md
-          grep -Fq 'publication-level novelty until a dedicated literature preflight establishes it' docs/ALGORITHM.md
-          grep -Fq 'scoped practical SOTA evidence' README.md
-          grep -Fq 'scholarly novelty' README.md
-          grep -Fq 'not established' README.md
+          python3 - <<'PY'
+          from pathlib import Path
+          alg=Path('docs/ALGORITHM.md').read_text().lower()
+          readme=Path('README.md').read_text().lower()
+          assert 'tight non-selected-parent filter' in alg
+          assert 'large-repair-gated alternate-witness rescue' in alg
+          assert 'publication-level novelty until a dedicated literature preflight establishes it' in alg
+          assert 'scoped practical sota evidence' in readme
+          assert 'scholarly novelty' in readme
+          assert 'not established' in readme
+          print('PR86 TARGET/README SEMANTIC BOUNDARIES PASS')
+          PY
           python3 tools/validate_comparator_registry.py \
             --registry benchmarks/comparators/registry.json \
             --output /tmp/pr86-registry.json
