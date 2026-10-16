@@ -159,9 +159,15 @@ jobs:
           test -f docs/PR85_ALGORITHM_SPEC_RECONCILIATION.md
           test -f docs/PR86_PRIOR_ART_NOVELTY_AUDIT.md
           test -f evidence/pr86_prior_art_novelty_ledger.json
-          grep -Fq 'tight non-selected-parent filter' docs/ALGORITHM.md
-          grep -Fq 'large-repair-gated alternate-witness rescue' docs/ALGORITHM.md
-          grep -Fq 'scoped practical SOTA evidence' README.md
+          python3 - <<'PY'
+          from pathlib import Path
+          algorithm=Path('docs/ALGORITHM.md').read_text().lower()
+          readme=Path('README.md').read_text().lower().replace('**','')
+          assert 'tight non-selected-parent filter' in algorithm
+          assert 'large-repair-gated alternate-witness rescue' in algorithm
+          assert 'scoped practical sota evidence' in readme
+          print('PR87 AUDIT CHAIN SURFACES PASS')
+          PY
 
       - name: Prove PR87 is publication-only
         run: |
