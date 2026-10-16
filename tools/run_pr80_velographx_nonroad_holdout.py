@@ -55,8 +55,8 @@ def write_json(path: Path, obj) -> None:
 
 
 def run(cmd: list[str], *, stdout_path: Path) -> None:
-    proc = subprocess.run(cmd, text=True, capture_output=True)
     stdout_path.parent.mkdir(parents=True, exist_ok=True)
+    proc = subprocess.run(cmd, text=True, capture_output=True)
     stdout_path.write_text(proc.stdout, encoding="utf-8")
     Path(str(stdout_path) + ".stderr").write_text(proc.stderr, encoding="utf-8")
     if proc.returncode != 0:
