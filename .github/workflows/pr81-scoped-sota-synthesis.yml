@@ -1,0 +1,111 @@
+name: ADES PR81 scoped SOTA evidence synthesis
+
+on:
+  push:
+    branches: [pr81-scoped-sota-evidence-synthesis]
+  pull_request:
+    paths:
+      - 'docs/PR81_SCOPED_PRACTICAL_SOTA_DECISION.md'
+      - 'evidence/pr81_scoped_sota_decision.json'
+      - 'docs/PUBLICATION_CONTRACT.md'
+      - 'benchmarks/comparators/registry.json'
+      - 'benchmarks/velographx_direct.cpp'
+      - 'tools/run_pr65_velographx_head_to_head.py'
+      - 'tools/validate_comparator_registry.py'
+      - '.github/workflows/pr81-scoped-sota-synthesis.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  evidence-consistency:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact PR81 head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve frozen publication contract and comparator rules
+        run: |
+          set -euo pipefail
+          grep -Fq '**Contract version:** 1.0' docs/PUBLICATION_CONTRACT.md
+          grep -Fq 'GO — Scoped SOTA' docs/PUBLICATION_CONTRACT.md
+          grep -Fq 'C-SOTA' docs/PUBLICATION_CONTRACT.md
+          python3 tools/validate_comparator_registry.py \
+            --registry benchmarks/comparators/registry.json \
+            --output /tmp/comparator-summary.json
+          python3 - <<'PY'
+          import json
+          s=json.load(open('/tmp/comparator-summary.json'))
+          assert s['status']=='PASS'
+          assert 'boost-graph-dijkstra-recompute' in s['direct_external_comparators']
+          assert s['headline_sota_ready'] is True
+          print(json.dumps(s,indent=2,sort_keys=True))
+          PY
+
+      - name: Verify frozen VeloGraphX adapter and pair-driver identities
+        run: |
+          set -euo pipefail
+          test "$(git hash-object benchmarks/velographx_direct.cpp)" = "b09a9f51b2b0300dce2801d0a8afaa49440d45a6"
+          test "$(git hash-object tools/run_pr65_velographx_head_to_head.py)" = "44019d478377282b5056a6b07d86d76757f7efc0"
+          grep -Fq 'std::make_unique<VGraph>(vertex_count, true)' benchmarks/velographx_direct.cpp
+          grep -Fq 'VeloGraphX DIRECT adapter requires an explicit persistent-state budget' benchmarks/velographx_direct.cpp
+
+      - name: Validate PR81 machine-readable decision
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('evidence/pr81_scoped_sota_decision.json')
+          d=json.loads(p.read_text())
+          assert d['schema']=='ades-pr81-scoped-sota-decision-v1'
+          assert d['publication_contract_version']=='1.0'
+          assert d['decision']=='GO_SCOPED_PRACTICAL_SOTA'
+          assert d['headline_claim_status']=='SUPPORTED_WITHIN_FROZEN_SCOPE'
+          assert d['claim_classification']['C-SOTA']=='SUPPORTED_WITHIN_FROZEN_SCOPE'
+          assert 'universal dynamic-shortest-path SOTA' in d['nonclaims']
+          direct={x['id']:x for x in d['direct_comparator_evidence']}
+          assert 'boost-graph-dijkstra-recompute' in direct
+          v=direct['velographx-weighted-sssp-adapter']
+          assert v['upstream_commit']=='2aa84ce81a180487239c661b65639e5100136075'
+          assert v['adapter_blob']=='b09a9f51b2b0300dce2801d0a8afaa49440d45a6'
+          pr80=[x for x in v['evidence'] if x['campaign']=='PR80'][0]
+          assert pr80['head']=='d7ff1eea51db6c07b312af393c315d6c84bcd661'
+          assert pr80['workflow_run']==38856829047
+          assert pr80['artifact']==12027088809
+          assert pr80['artifact_digest']=='sha256:617bb4c9c847b8c236dea95caf39119569d66422038be32f5498502298eef100'
+          assert pr80['exact_cells']==24
+          assert pr80['total_loss_cells']==0
+          assert pr80['query_loss_cells']==0
+          assert pr80['total_ci95'][0] > 1
+          assert pr80['query_ci95'][0] > 1
+          assert pr80['minimum_total_cell_ratio'] > 1
+          assert pr80['minimum_query_cell_ratio'] > 1
+          assert pr80['strong_preregistered_pass'] is True
+          assert pr80['velographx_peak_accounted_state_bytes'] <= v['logical_state_budget_bytes']
+          assert pr80['ades_peak_accounted_state_bytes'] <= v['logical_state_budget_bytes']
+          assert pr80['velographx_cache_hits'] > 0
+          print('PR81 MACHINE-READABLE DECISION PASS')
+          PY
+
+      - name: Enforce bounded manuscript wording
+        run: |
+          set -euo pipefail
+          grep -Fq 'GO — SCOPED PRACTICAL SOTA' docs/PR81_SCOPED_PRACTICAL_SOTA_DECISION.md
+          grep -Fq 'does **not** assert universal dynamic-shortest-path SOTA' docs/PR81_SCOPED_PRACTICAL_SOTA_DECISION.md
+          grep -Fq 'remaining risk is **claim breadth**' docs/PR81_SCOPED_PRACTICAL_SOTA_DECISION.md
+          ! grep -Fq "ADES is the world's fastest dynamic shortest-path algorithm." docs/PR81_SCOPED_PRACTICAL_SOTA_DECISION.md || \
+            grep -Fq 'Do **not** claim' docs/PR81_SCOPED_PRACTICAL_SOTA_DECISION.md
+
+      - name: Record PR81 evidence hashes
+        run: |
+          set -euo pipefail
+          sha256sum \
+            docs/PUBLICATION_CONTRACT.md \
+            docs/PR81_SCOPED_PRACTICAL_SOTA_DECISION.md \
+            evidence/pr81_scoped_sota_decision.json \
+            benchmarks/comparators/registry.json \
+            benchmarks/velographx_direct.cpp \
+            tools/run_pr65_velographx_head_to_head.py
