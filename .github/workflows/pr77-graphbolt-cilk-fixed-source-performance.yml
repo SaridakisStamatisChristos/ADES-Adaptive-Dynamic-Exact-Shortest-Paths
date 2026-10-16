@@ -1,0 +1,260 @@
+name: ADES PR77 GraphBolt historical Cilk fixed-source performance
+
+on:
+  push:
+    branches: [pr77-graphbolt-cilk-fixed-source-performance]
+  pull_request:
+    paths:
+      - 'docs/PR77_GRAPHBOLT_CILK_FIXED_SOURCE_PERFORMANCE_CONTRACT.md'
+      - 'tools/run_pr77_graphbolt_cilk_performance.py'
+      - 'tools/run_pr70_graphbolt_performance.py'
+      - 'tools/pr70_ades_fixed_source.cpp'
+      - 'CMakeLists.txt'
+      - '.github/workflows/pr77-graphbolt-cilk-fixed-source-performance.yml'
+
+permissions:
+  contents: read
+
+env:
+  CILK_IMAGE: gcc@sha256:1938a2199146f37d7c5b697a66d4379b75e3cd6ca5e08380c6803ab25e0ba9a4
+  GRAPHBOLT_SHA: 7c2792cc77d59b9722288ded8c3c62f6a9a87fc7
+  MIMALLOC_SHA: 04f1c3b1e23677ce03bd16137e73089abd552175
+  PATCH_ID: kickstarter-missing-return-v1
+  CILK_NWORKERS: '4'
+
+jobs:
+  holdout:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact PR77 head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Freeze preregistered identities
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/pr77/provenance graphbolt-runtime legacy-runtime external
+          python3 -m py_compile \
+            tools/run_pr70_graphbolt_performance.py \
+            tools/run_pr77_graphbolt_cilk_performance.py
+          sha256sum \
+            docs/PR77_GRAPHBOLT_CILK_FIXED_SOURCE_PERFORMANCE_CONTRACT.md \
+            tools/run_pr70_graphbolt_performance.py \
+            tools/run_pr77_graphbolt_cilk_performance.py \
+            tools/pr70_ades_fixed_source.cpp \
+            > evidence/pr77/provenance/pr77-input-sha256.txt
+
+      - name: Build and test frozen ADES lineage
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+          test -x build/ades_pr70_fixed_source
+          sha256sum build/ades_pr70_fixed_source \
+            > evidence/pr77/provenance/ades-runner-sha256.txt
+
+      - name: Pull and verify immutable historical Cilk image
+        run: |
+          set -euo pipefail
+          docker pull "$CILK_IMAGE"
+          digest=$(docker image inspect "$CILK_IMAGE" --format '{{index .RepoDigests 0}}')
+          test "$digest" = "$CILK_IMAGE"
+          echo "$digest" > evidence/pr77/provenance/container-repodigest.txt
+          docker run --rm "$CILK_IMAGE" bash -lc 'cat /etc/os-release; g++ --version' \
+            > evidence/pr77/provenance/container-toolchain.txt
+
+      - name: Fetch exact GraphBolt and mimalloc revisions
+        run: |
+          set -euo pipefail
+          git clone https://github.com/pdclab/graphbolt.git external/graphbolt
+          git -C external/graphbolt checkout --detach "$GRAPHBOLT_SHA"
+          test "$(git -C external/graphbolt rev-parse HEAD)" = "$GRAPHBOLT_SHA"
+          test -z "$(git -C external/graphbolt status --porcelain)"
+          git clone https://github.com/microsoft/mimalloc.git external/mimalloc
+          git -C external/mimalloc checkout --detach "$MIMALLOC_SHA"
+          test "$(git -C external/mimalloc rev-parse HEAD)" = "$MIMALLOC_SHA"
+          test -z "$(git -C external/mimalloc status --porcelain)"
+          sha256sum \
+            external/graphbolt/apps/SSSP.C \
+            external/graphbolt/apps/SSSP_edgeData.h \
+            external/graphbolt/core/graphBolt/KickStarterEngine.h \
+            external/graphbolt/core/graphBolt/ingestor.h \
+            external/graphbolt/core/common/parallel.h \
+            > evidence/pr77/provenance/graphbolt-upstream-sha256.txt
+
+      - name: Apply only PR69-qualified portability repair
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('external/graphbolt/core/graphBolt/KickStarterEngine.h')
+          s = p.read_text()
+          signature = '  int traditionalIncrementalComputation() {\n    while (active_vertices_bitset.anyScheduledTasks()) {'
+          marker = '      }\n    }\n  }\n\n  void deltaCompute(edgeArray &edge_additions, edgeArray &edge_deletions) {'
+          replacement = '      }\n    }\n    return 0;  // ADES PR69 portability repair: caller ignores return value.\n  }\n\n  void deltaCompute(edgeArray &edge_additions, edgeArray &edge_deletions) {'
+          if s.count(signature) != 1:
+              raise SystemExit('unique no-arg traditionalIncrementalComputation signature not found')
+          start = s.index(signature)
+          head, tail = s[:start], s[start:]
+          if tail.count(marker) != 1:
+              raise SystemExit('unique function terminator not found')
+          p.write_text(head + tail.replace(marker, replacement, 1))
+          PY
+          git -C external/graphbolt diff --check
+          git -C external/graphbolt diff -- core/graphBolt/KickStarterEngine.h \
+            > evidence/pr77/provenance/portability.patch
+          test "$(git -C external/graphbolt diff --numstat | awk '{print $1":"$2":"$3}')" \
+            = "1:0:core/graphBolt/KickStarterEngine.h"
+
+      - name: Build PR76-qualified historical Cilk GraphBolt substrate
+        run: |
+          set -euo pipefail
+          ROOT="$PWD"
+          docker run --rm \
+            -v "$ROOT:$ROOT" -w "$ROOT" \
+            "$CILK_IMAGE" bash -lc '
+              set -euo pipefail
+              gcc -std=gnu11 -O3 -DNDEBUG -fPIC -fvisibility=hidden \
+                -ftls-model=initial-exec -DMI_SHARED_LIB -DMI_SHARED_LIB_EXPORT \
+                -Iexternal/mimalloc/include -Iexternal/mimalloc/src \
+                external/mimalloc/src/stats.c \
+                external/mimalloc/src/random.c \
+                external/mimalloc/src/os.c \
+                external/mimalloc/src/arena.c \
+                external/mimalloc/src/region.c \
+                external/mimalloc/src/segment.c \
+                external/mimalloc/src/page.c \
+                external/mimalloc/src/alloc.c \
+                external/mimalloc/src/alloc-aligned.c \
+                external/mimalloc/src/alloc-posix.c \
+                external/mimalloc/src/heap.c \
+                external/mimalloc/src/options.c \
+                external/mimalloc/src/init.c \
+                -shared -pthread -lrt -o legacy-runtime/libmimalloc.so
+              test -f legacy-runtime/libmimalloc.so
+              g++ -std=c++14 -fcilkplus -g -O3 -DCILK -DEDGELONG -DEDGEDATA \
+                -include cstdint external/graphbolt/apps/SSSP.C \
+                -Llegacy-runtime -lmimalloc -lcilkrts -pthread \
+                -Wl,-rpath,"'$ROOT'/legacy-runtime" \
+                -o graphbolt-runtime/graphbolt_sssp_cilk
+              test -x graphbolt-runtime/graphbolt_sssp_cilk
+              ldd graphbolt-runtime/graphbolt_sssp_cilk \
+                > evidence/pr77/provenance/graphbolt-cilk-ldd.txt
+              g++ --version | head -1 \
+                > evidence/pr77/provenance/cilk-compiler.txt
+            '
+          sha256sum legacy-runtime/libmimalloc.so \
+            > evidence/pr77/provenance/mimalloc-library-sha256.txt
+          sha256sum graphbolt-runtime/graphbolt_sssp_cilk \
+            > evidence/pr77/provenance/graphbolt-cilk-binary-sha256.txt
+
+      - name: Create digest-pinned historical Cilk wrapper
+        run: |
+          set -euo pipefail
+          cat > graphbolt-runtime/run_graphbolt_cilk.sh <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+          IMAGE='gcc@sha256:1938a2199146f37d7c5b697a66d4379b75e3cd6ca5e08380c6803ab25e0ba9a4'
+          exec docker run --rm \
+            -e CILK_NWORKERS="${CILK_NWORKERS:-4}" \
+            -e LD_PRELOAD="$ROOT/legacy-runtime/libmimalloc.so" \
+            -v "$ROOT:$ROOT" -w "$ROOT" \
+            "$IMAGE" \
+            "$ROOT/graphbolt-runtime/graphbolt_sssp_cilk" "$@"
+          SH
+          chmod +x graphbolt-runtime/run_graphbolt_cilk.sh
+          sha256sum graphbolt-runtime/run_graphbolt_cilk.sh \
+            > evidence/pr77/provenance/cilk-wrapper-sha256.txt
+
+      - name: Execute preregistered correctness and performance experiment
+        id: experiment
+        run: |
+          set +e
+          python3 tools/run_pr77_graphbolt_cilk_performance.py \
+            --graphbolt "$PWD/graphbolt-runtime/run_graphbolt_cilk.sh" \
+            --ades "$PWD/build/ades_pr70_fixed_source" \
+            --mimalloc "$PWD/legacy-runtime/libmimalloc.so" \
+            --out evidence/pr77
+          rc=$?
+          echo "$rc" > evidence/pr77/experiment-exit-code.txt
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Record R7 provenance
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/pr77/provenance
+          {
+            echo "head_sha=${GITHUB_SHA}"
+            echo "pr77_branch=pr77-graphbolt-cilk-fixed-source-performance"
+            echo "pr77_preregistration_commit=fb707e30f6b9948741e4c0fb2b0c2b645c3a308f"
+            echo "contract_status=preregistered-before-pr77-comparative-timings"
+            echo "graphbolt_sha=${GRAPHBOLT_SHA}"
+            echo "mimalloc_sha=${MIMALLOC_SHA}"
+            echo "portability_patch_id=${PATCH_ID}"
+            echo "graphbolt_parallel_mode=historical Cilk Plus"
+            echo "graphbolt_workers=${CILK_NWORKERS}"
+            echo "cilk_image=${CILK_IMAGE}"
+            echo "mimalloc_language_mode=gnu11"
+            echo "ades_build=Release"
+            echo "experiment_exit_code=${{ steps.experiment.outputs.exit_code }}"
+            echo "pr76_semantic_run=38854118754"
+            echo "pr76_semantic_job=116821640368"
+            echo "pr76_semantic_artifact=12026410989"
+            echo "pr76_semantic_artifact_digest=sha256:56fd8c8cadc3ed41414f3b1bdbefe62a8aebd15f81c261ef2742720b0acc0166"
+            echo "claim_boundary=resident fixed-source core versus PR76-qualified historical-Cilk GraphBolt on frozen PR70-derived synthetic directed slice only"
+            python3 --version
+            docker --version
+            cmake --version | head -1
+            uname -a
+          } > evidence/pr77/provenance/environment.txt
+
+      - name: Enforce valid experiment completion not preferred outcome
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path('evidence/pr77')
+          path = root / 'summary.json'
+          if not path.exists():
+              raise SystemExit('PR77 did not produce summary.json')
+          d = json.loads(path.read_text())
+          allowed = {
+              'SUPPORTS_ADES_RESIDENT_FIXED_SOURCE_CORE_SUPERIORITY_OVER_HISTORICAL_CILK_GRAPHBOLT_ON_PR77_TESTED_SLICE',
+              'FALSIFIES_PREFERRED_PR77_CILK_SUPERIORITY_HYPOTHESIS_ON_TESTED_SLICE',
+              'REJECTED_PR77_CORRECTNESS_OR_DISTANCE_BOUND',
+          }
+          if d.get('disposition') not in allowed:
+              raise SystemExit(f"unexpected PR77 disposition: {d.get('disposition')!r}")
+          if d['disposition'] == 'REJECTED_PR77_CORRECTNESS_OR_DISTANCE_BOUND':
+              raise SystemExit('semantic/distance gate failed; performance evidence not admitted')
+          assert d.get('schema') == 'ades-pr77-graphbolt-historical-cilk-fixed-source-performance-v1'
+          assert d.get('contract') == 'docs/PR77_GRAPHBOLT_CILK_FIXED_SOURCE_PERFORMANCE_CONTRACT.md'
+          assert d.get('independent_seeds') == 4
+          assert d.get('measured_pairs') == 8
+          assert d.get('correctness_all_exact') is True
+          assert d.get('graphbolt_parallel_mode') == 'historical Cilk Plus'
+          assert d.get('graphbolt_workers') == 4
+          assert d.get('graphbolt_cilk_image') == 'gcc@sha256:1938a2199146f37d7c5b697a66d4379b75e3cd6ca5e08380c6803ab25e0ba9a4'
+          print('PR77 experiment completed without outcome-based gating')
+          print(json.dumps({
+              'disposition': d['disposition'],
+              'maintenance': d['maintenance'],
+              'total': d['total'],
+              'seed_level': d['seed_level'],
+          }, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload PR77 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr77-graphbolt-cilk-fixed-source-${{ github.event.pull_request.head.sha || github.sha }}
+          path: evidence/pr77
+          if-no-files-found: error
+          retention-days: 90
