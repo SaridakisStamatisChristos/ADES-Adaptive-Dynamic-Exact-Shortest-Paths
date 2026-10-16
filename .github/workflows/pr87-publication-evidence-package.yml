@@ -117,7 +117,7 @@ jobs:
           assert 'broad algorithmic novelty is rejected' in low
           assert 'integrated-system originality remains unestablished' in low or 'integrated-system novelty' in low
           assert 'locality_percent=0' in text
-          assert 'does not establish source-policy breadth' in low
+          assert 'do not establish source-policy breadth' in low or 'does not establish source-policy breadth' in low
           assert 'pr57-v1' in low and 'rejected' in low
           assert 'large affected subtree implies rebuild is cheaper' in low
           assert 'refuted as a general rule' in low
