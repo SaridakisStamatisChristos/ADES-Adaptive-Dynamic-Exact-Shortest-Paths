@@ -1,0 +1,109 @@
+name: ADES PR71 email-Eu-core topology freeze
+
+on:
+  push:
+    branches: [pr71-email-eu-core-topology-freeze]
+  pull_request:
+    paths:
+      - 'docs/PR71_EMAIL_EU_CORE_TOPOLOGY_FREEZE.md'
+      - 'tools/freeze_pr71_email_eu_core.py'
+      - '.github/workflows/pr71-email-eu-core-topology-freeze.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  freeze-topology:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact PR71 head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Freeze preregistration inputs
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/pr71/provenance evidence/pr71/source
+          python3 -m py_compile tools/freeze_pr71_email_eu_core.py
+          sha256sum \
+            docs/PR71_EMAIL_EU_CORE_TOPOLOGY_FREEZE.md \
+            tools/freeze_pr71_email_eu_core.py \
+            > evidence/pr71/provenance/pr71-input-sha256.txt
+
+      - name: Fetch exact public SNAP topology artifact
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error \
+            --retry 3 --retry-all-errors \
+            --output evidence/pr71/source/email-Eu-core.txt.gz \
+            https://snap.stanford.edu/data/email-Eu-core.txt.gz
+          test -s evidence/pr71/source/email-Eu-core.txt.gz
+          curl --version | head -1 > evidence/pr71/provenance/curl-version.txt
+
+      - name: Validate and canonicalize external topology
+        id: freeze
+        run: |
+          set +e
+          python3 tools/freeze_pr71_email_eu_core.py \
+            --input-gz evidence/pr71/source/email-Eu-core.txt.gz \
+            --out evidence/pr71/frozen
+          rc=$?
+          echo "$rc" > evidence/pr71/freeze-exit-code.txt
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Enforce preregistered structural qualification
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('evidence/pr71/frozen/manifest.json')
+          if not p.exists():
+              raise SystemExit('missing PR71 manifest')
+          d = json.loads(p.read_text())
+          assert d['schema'] == 'ades-pr71-email-eu-core-topology-freeze-v1'
+          assert d['source_url'] == 'https://snap.stanford.edu/data/email-Eu-core.txt.gz'
+          assert d['observed']['unique_nodes'] == 1005
+          assert d['observed']['directed_edges'] == 25571
+          assert d['observed']['largest_wcc_nodes'] == 986
+          assert d['observed']['largest_wcc_edges'] == 25552
+          assert d['observed']['largest_scc_nodes'] == 803
+          assert d['observed']['largest_scc_edges'] == 24729
+          assert len(d['gzip_sha256']) == 64
+          assert len(d['canonical_edge_list_sha256']) == 64
+          assert d['disposition'] == 'QUALIFIED_EXTERNAL_DIRECTED_TOPOLOGY_EMAIL_EU_CORE'
+          print('PR71 STRUCTURAL FREEZE PASS')
+          print('gzip_sha256=', d['gzip_sha256'])
+          print('canonical_edge_list_sha256=', d['canonical_edge_list_sha256'])
+          print('hashes_frozen_in_invocation=', d['hashes_frozen_in_invocation'])
+          PY
+
+      - name: Record R7 provenance
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/pr71/provenance
+          {
+            echo "head_sha=${GITHUB_SHA}"
+            echo "branch=pr71-email-eu-core-topology-freeze"
+            echo "source_owner=Stanford Network Analysis Project"
+            echo "source_name=email-Eu-core"
+            echo "source_url=https://snap.stanford.edu/data/email-Eu-core.txt.gz"
+            echo "gate_type=external topology identity/provenance only"
+            echo "comparative_timing_executed=false"
+            echo "native_weight_claim=false"
+            echo "freeze_exit_code=${{ steps.freeze.outputs.exit_code }}"
+            python3 --version
+            uname -a
+          } > evidence/pr71/provenance/environment.txt
+
+      - name: Upload PR71 topology evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr71-email-eu-core-topology-${{ github.event.pull_request.head.sha || github.sha }}
+          path: evidence/pr71
+          if-no-files-found: error
+          retention-days: 90
