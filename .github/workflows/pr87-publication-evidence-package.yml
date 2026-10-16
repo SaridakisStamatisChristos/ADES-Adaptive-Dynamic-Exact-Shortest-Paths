@@ -1,0 +1,198 @@
+name: ADES PR87 publication evidence package
+
+on:
+  push:
+    branches: [pr87-publication-evidence-package]
+  pull_request:
+    paths:
+      - 'docs/PR87_PUBLICATION_EVIDENCE_PACKAGE.md'
+      - 'evidence/pr87_publication_manifest.json'
+      - 'paper/ADES_MANUSCRIPT_SCAFFOLD.md'
+      - '.github/workflows/pr87-publication-evidence-package.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  submission-package:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact PR87 head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Validate canonical publication manifest
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          d=json.load(open('evidence/pr87_publication_manifest.json'))
+          assert d['schema']=='ades-pr87-publication-manifest-v1'
+          assert d['publication_contract_version']=='1.0'
+          assert d['frozen_candidate']=='cf7cbc3ed7d9d37ad673a540485a1eee781d47fe'
+          assert d['performance_decision']=='GO_SCOPED_PRACTICAL_SOTA'
+          assert d['broad_algorithmic_novelty_decision']=='NO_GO'
+          assert d['integrated_systems_novelty']=='NOVELTY_UNESTABLISHED_POSSIBLY_DISTINCT'
+          direct={x['id']:x for x in d['direct_comparators']}
+          assert set(direct)=={'boost-graph-dijkstra-recompute','velographx-weighted-sssp-adapter'}
+          assert direct['velographx-weighted-sssp-adapter']['arbitrary_source_semantics']=='ADAPTER_MEDIATED_NOT_NATIVE_UPSTREAM'
+          ev={x['id']:x for x in d['central_evidence']}
+          assert set(ev)=={'E1_PR62_BOOST_NY','E2_PR66_VELOGRAPHX_NY_SOURCE_REUSE','E3_PR80_VELOGRAPHX_NONROAD'}
+
+          e1=ev['E1_PR62_BOOST_NY']
+          assert e1['workflow_run']==38711826306
+          assert e1['artifact']==11961213712
+          assert e1['artifact_sha256']=='0bd64d43ba48fda4c9e0752ea6acafc1c9fa8ddb7eec2f2fdabc88d1574029ff'
+          assert e1['exact_cells']==24 and e1['total_loss_cells']==0 and e1['query_loss_cells']==0
+          assert abs(e1['total_ratio_comparator_over_ades_geomean']-5.112681)<1e-9
+          assert 'source-policy breadth' in e1['mandatory_correction']
+
+          e2=ev['E2_PR66_VELOGRAPHX_NY_SOURCE_REUSE']
+          assert e2['workflow_run']==38730045262
+          assert e2['job']==116405296228
+          assert e2['artifact']==11971060916
+          assert e2['artifact_sha256']=='c4a3d64af948afd03daa1e983ee2d75eadf838ca94bdc59103c25ff5575dd299'
+          assert e2['exact_cells']==24 and e2['total_loss_cells']==0 and e2['query_loss_cells']==0
+          assert e2['hot_pool_cache_hits']>0 and e2['rotating_hot_cache_hits']>0
+
+          e3=ev['E3_PR80_VELOGRAPHX_NONROAD']
+          assert e3['workflow_run']==38856829047
+          assert e3['job']==116830072333
+          assert e3['artifact']==12027088809
+          assert e3['artifact_digest']=='sha256:617bb4c9c847b8c236dea95caf39119569d66422038be32f5498502298eef100'
+          assert e3['exact_cells']==24 and e3['total_loss_cells']==0 and e3['query_loss_cells']==0
+          assert e3['total_ci95_slice_robustness'][0]>1
+          assert e3['query_ci95_slice_robustness'][0]>1
+          assert e3['uncertainty_interpretation']=='SLICE_LEVEL_ROBUSTNESS_NOT_POPULATION_INFERENCE'
+          assert e3['velographx_peak_accounted_state_bytes']<=e3['persistent_state_budget_bytes']
+          assert e3['ades_peak_accounted_state_bytes']<=e3['persistent_state_budget_bytes']
+
+          neg={x['id']:x for x in d['negative_and_corrective_evidence']}
+          assert {'NEG_PR57_V1','NEG_CONTROLLER_STRUCTURAL_PROXY','CORRECTION_PR62_SOURCE_BREADTH','HARNESS_PR80_FIRST_RUN','AUDIT_PR83_PR84'} <= set(neg)
+          assert neg['NEG_PR57_V1']['status']=='REJECTED'
+          assert neg['NEG_CONTROLLER_STRUCTURAL_PROXY']['status']=='PARTIALLY_REFUTED'
+          assert neg['CORRECTION_PR62_SOURCE_BREADTH']['status']=='CORRECTED_INTERPRETATION'
+
+          assert d['claim_status']['C-SOTA']=='SUPPORTED_WITHIN_FROZEN_SCOPE'
+          assert d['claim_status']['BROAD_ALGORITHMIC_NOVELTY']=='REJECTED'
+          assert d['claim_status']['INTEGRATED_SYSTEMS_NOVELTY']=='UNESTABLISHED_POSSIBLY_DISTINCT'
+          assert d['next_stage']=='MANUSCRIPT_AND_INDEPENDENT_ARTIFACT_REPRODUCTION'
+          print('PR87 PUBLICATION MANIFEST PASS')
+          PY
+
+      - name: Verify current DIRECT comparator registry independently
+        run: |
+          set -euo pipefail
+          python3 tools/validate_comparator_registry.py \
+            --registry benchmarks/comparators/registry.json \
+            --output /tmp/pr87-registry.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/pr87-registry.json'))
+          assert set(d['direct_external_comparators']) >= {
+            'boost-graph-dijkstra-recompute',
+            'velographx-weighted-sssp-adapter',
+          }
+          assert d['headline_sota_ready'] is True
+          print('PR87 DIRECT COMPARATOR REGISTRY PASS')
+          PY
+
+      - name: Enforce manuscript claim boundaries
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          text=Path('paper/ADES_MANUSCRIPT_SCAFFOLD.md').read_text()
+          low=text.lower()
+          assert 'ades: exact adaptive source residency for online dynamic shortest paths under bounded state' in low
+          assert 'scoped practical' in low
+          assert 'not universal or theoretical' in low
+          assert 'adapter-mediated' in low
+          assert 'upstream is fixed-source' in low
+          assert 'not population-level inference' in low
+          assert 'not equal actual bytes' in low or 'not equal memory occupancy' in low
+          assert 'broad algorithmic novelty is rejected' in low
+          assert 'integrated-system originality remains unestablished' in low or 'integrated-system novelty' in low
+          assert 'locality_percent=0' in text
+          assert 'does not establish source-policy breadth' in low
+          assert 'pr57-v1' in low and 'rejected' in low
+          assert 'large affected subtree implies rebuild is cheaper' in low
+          assert 'refuted as a general rule' in low
+          assert 'failure to find' in low or 'focused prior-art audit' in low
+          # Ratios must be attached to named comparator sections.
+          assert 'boost.graph' in low and '5.112681' in low
+          assert 'velographx' in low and '15.561191' in low and '157.677417' in low
+          # Do not assert the prohibited universal/theoretical claims as positive conclusions.
+          assert 'we do **not** claim a new worst-case dynamic shortest-path bound' in low
+          assert 'universal practical sota' in low
+          print('PR87 MANUSCRIPT BOUNDARY PASS')
+          PY
+
+      - name: Enforce prior-art novelty boundary
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          n=json.load(open('evidence/pr86_prior_art_novelty_ledger.json'))
+          m=Path('paper/ADES_MANUSCRIPT_SCAFFOLD.md').read_text().lower()
+          p=Path('docs/PR87_PUBLICATION_EVIDENCE_PACKAGE.md').read_text().lower()
+          assert n['broad_algorithmic_novelty_decision']=='NO_GO'
+          assert n['integrated_systems_novelty']=='NOVELTY_UNESTABLISHED_POSSIBLY_DISTINCT'
+          assert 'substantial precedent' in m
+          assert 'broad algorithmic novelty' in p and 'no-go' in p
+          assert 'possibly distinct' in p and 'unestablished' in p
+          assert 'no_close_match_found' not in m or 'not proof of novelty' in m
+          print('PR87 NOVELTY BOUNDARY PASS')
+          PY
+
+      - name: Verify audit chain and reconciled algorithm surfaces
+        run: |
+          set -euo pipefail
+          test -f docs/PR81_SCOPED_PRACTICAL_SOTA_DECISION.md
+          test -f docs/PR82_VELOGRAPHX_REGISTRY_RECONCILIATION.md
+          test -f docs/PR83_ADVERSARIAL_PUBLICATION_AUDIT.md
+          test -f docs/PR84_PUBLIC_EVIDENCE_STATUS_REPAIR.md
+          test -f docs/PR85_ALGORITHM_SPEC_RECONCILIATION.md
+          test -f docs/PR86_PRIOR_ART_NOVELTY_AUDIT.md
+          test -f evidence/pr86_prior_art_novelty_ledger.json
+          grep -Fq 'tight non-selected-parent filter' docs/ALGORITHM.md
+          grep -Fq 'large-repair-gated alternate-witness rescue' docs/ALGORITHM.md
+          grep -Fq 'scoped practical SOTA evidence' README.md
+
+      - name: Prove PR87 is publication-only
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha || 'd472d59c0e84d20e1722f3837a75066ba22a3659' }}"
+          git diff --name-only "$base" HEAD | tee /tmp/pr87-changed.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          changed=set(Path('/tmp/pr87-changed.txt').read_text().splitlines())
+          allowed={
+            'docs/PR87_PUBLICATION_EVIDENCE_PACKAGE.md',
+            'evidence/pr87_publication_manifest.json',
+            'paper/ADES_MANUSCRIPT_SCAFFOLD.md',
+            '.github/workflows/pr87-publication-evidence-package.yml',
+          }
+          extra=changed-allowed
+          if extra:
+              raise SystemExit(f'PR87 modified non-publication surfaces: {sorted(extra)}')
+          print('PR87 PUBLICATION-ONLY DIFF PASS')
+          PY
+
+      - name: Record package hashes
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/pr87
+          sha256sum \
+            docs/PR87_PUBLICATION_EVIDENCE_PACKAGE.md \
+            evidence/pr87_publication_manifest.json \
+            paper/ADES_MANUSCRIPT_SCAFFOLD.md \
+            docs/PUBLICATION_CONTRACT.md \
+            docs/ALGORITHM.md \
+            benchmarks/comparators/registry.json \
+            evidence/pr86_prior_art_novelty_ledger.json \
+            > /tmp/pr87/package-sha256.txt
+          cat /tmp/pr87/package-sha256.txt
