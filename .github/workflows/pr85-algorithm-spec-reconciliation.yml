@@ -1,0 +1,107 @@
+name: ADES PR85 algorithm spec reconciliation
+
+on:
+  push:
+    branches: [pr85-algorithm-spec-reconciliation]
+  pull_request:
+    paths:
+      - 'docs/ALGORITHM.md'
+      - 'docs/PR85_ALGORITHM_SPEC_RECONCILIATION.md'
+      - '.github/workflows/pr85-algorithm-spec-reconciliation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  source-spec-consistency:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact PR85 head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Verify frozen candidate source blobs remain present
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse cf7cbc3ed7d9d37ad673a540485a1eee781d47fe)" = "cf7cbc3ed7d9d37ad673a540485a1eee781d47fe"
+          test "$(git rev-parse cf7cbc3ed7d9d37ad673a540485a1eee781d47fe:src/dynamic_repair.cpp)" = "116f12376d14dc62fdd25177b1e2ecb8175d81b4"
+          test "$(git rev-parse cf7cbc3ed7d9d37ad673a540485a1eee781d47fe:src/shortest_paths.cpp)" = "02619728bcdb8047d2fee14cab9125563934e47e"
+          test "$(git rev-parse cf7cbc3ed7d9d37ad673a540485a1eee781d47fe:include/ades/shortest_paths.hpp)" = "7b1b195b80c927d60b2346711f1ab071c7fa3c71"
+          test "$(git rev-parse cf7cbc3ed7d9d37ad673a540485a1eee781d47fe:docs/PR54_CORE_ENGINE_PHASE_CHANGE.md)" = "5fa83a6a3cf10c96e7fec1241e5d7e766ff7f71b"
+
+      - name: Verify source semantics targeted by reconciliation
+        run: |
+          set -euo pipefail
+          git show cf7cbc3ed7d9d37ad673a540485a1eee781d47fe:src/dynamic_repair.cpp > /tmp/pr85-dynamic.cpp
+          git show cf7cbc3ed7d9d37ad673a540485a1eee781d47fe:src/shortest_paths.cpp > /tmp/pr85-shortest.cpp
+          git show cf7cbc3ed7d9d37ad673a540485a1eee781d47fe:include/ades/shortest_paths.hpp > /tmp/pr85-shortest.hpp
+          grep -Fq 'kWitnessDiscoveryTrigger=256' /tmp/pr85-dynamic.cpp
+          grep -Fq 'kWitnessProbeLimit=64' /tmp/pr85-dynamic.cpp
+          grep -Fq 'thread_local RepairMembershipScratch repair_membership_scratch' /tmp/pr85-dynamic.cpp
+          grep -Fq 'if(s.parent_edge[old.to]!=id)return RepairResult::Filtered;' /tmp/pr85-dynamic.cpp
+          grep -Fq 'witness_rescues++' /tmp/pr85-dynamic.cpp
+          grep -Fq 'thread_local BidirectionalWorkspace bidirectional_workspace' /tmp/pr85-shortest.cpp
+          grep -Fq 'RadixQueue q;' /tmp/pr85-shortest.cpp
+          grep -Fq '{},0};' /tmp/pr85-shortest.cpp
+          grep -Fq 'std::vector<std::uint32_t> repair_mark;' /tmp/pr85-shortest.hpp
+          grep -Fq 'std::uint32_t repair_epoch=0;' /tmp/pr85-shortest.hpp
+
+      - name: Verify formal specification now matches source
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          text=Path('docs/ALGORITHM.md').read_text()
+          low=text.lower()
+          assert 'tight non-selected-parent filter' in low
+          assert 'returns `filtered` without discovery or semantic mutation' in low
+          assert 'conservatively requests a full rebuild' not in low
+          assert 'large-repair-gated alternate-witness rescue' in low
+          assert 'fewer than 256 discovered affected vertices' in low
+          assert 'at most 64 incoming arcs' in low
+          assert 'shared thread-local membership scratch' in low
+          assert 'compatibility `repair_mark` vector' in low
+          assert 'radixqueue' in low or 'radix queue' in low
+          assert 'publication-level novelty until a dedicated literature preflight establishes it' in low
+          assert 'new worst-case asymptotic bound' in low
+          print('PR85 FORMAL SPEC CONSISTENCY PASS')
+          PY
+
+      - name: Prove PR85 is documentation-only
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha || 'b0a3c8707304645ecfba720d51212c03b187d375' }}"
+          git diff --name-only "$base" HEAD | tee /tmp/pr85-changed.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          changed=set(Path('/tmp/pr85-changed.txt').read_text().splitlines())
+          allowed={
+            'docs/ALGORITHM.md',
+            'docs/PR85_ALGORITHM_SPEC_RECONCILIATION.md',
+            '.github/workflows/pr85-algorithm-spec-reconciliation.yml',
+          }
+          extra=changed-allowed
+          if extra:
+              raise SystemExit(f'PR85 touched non-documentation surfaces: {sorted(extra)}')
+          print('PR85 DOCUMENTATION-ONLY DIFF PASS')
+          PY
+
+      - name: Preserve scoped-SOTA and novelty boundaries
+        run: |
+          set -euo pipefail
+          grep -Fq 'scoped practical SOTA evidence' README.md
+          grep -Fq 'scholarly novelty' README.md
+          grep -Fq 'not established' README.md
+          grep -Fq 'Publication Contract v1.0' README.md
+          python3 tools/validate_comparator_registry.py \
+            --registry benchmarks/comparators/registry.json \
+            --output /tmp/pr85-registry.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/pr85-registry.json'))
+          assert 'boost-graph-dijkstra-recompute' in d['direct_external_comparators']
+          assert 'velographx-weighted-sssp-adapter' in d['direct_external_comparators']
+          print('PR85 CLAIM BOUNDARY PASS')
+          PY
