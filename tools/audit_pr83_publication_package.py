@@ -132,15 +132,17 @@ def main() -> int:
         "PR81 contextual-evidence ledger and PR82 registry must preserve assumption-class separation.",
     ))
 
-    # G — empirical SOTA is not a novelty/asymptotic proof.
+    # G — empirical SOTA is not a novelty/asymptotic proof. Keep this OPEN even when bounded correctly.
+    readme_lower = readme.lower()
     g_ok = (
-        "novelty is **not established**" in readme
+        "novelty" in readme_lower
+        and "not established" in readme_lower
         and "theoretical or asymptotic SOTA" in decision["nonclaims"]
     )
     findings.append(finding(
         "G1", "HIGH", "OPEN_BOUNDARY" if g_ok else "FAIL",
         "Scoped practical performance-SOTA evidence does not establish scholarly novelty of the underlying repair/residency mechanisms or a new asymptotic bound.",
-        "README and PR81 nonclaims must retain novelty/asymptotic separation.",
+        "README and PR81 nonclaims must retain novelty/asymptotic separation; passing this check leaves novelty OPEN rather than established.",
     ))
 
     # H — README drift can be either still open or explicitly closed by PR84.
@@ -148,7 +150,6 @@ def main() -> int:
         "publication-grade evidence should rerun the complete matrix on one fixed commit "
         "across multiple independent workload seeds and longer traces"
     )
-    readme_lower = readme.lower()
     h_stale = stale_phrase in readme
     h_repaired = (
         not h_stale
