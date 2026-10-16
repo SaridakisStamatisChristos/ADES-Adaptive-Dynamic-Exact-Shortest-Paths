@@ -1,0 +1,147 @@
+name: ADES PR88 independent artifact reproduction
+
+on:
+  push:
+    branches: [pr88-independent-artifact-reproduction]
+  pull_request:
+    paths:
+      - 'tools/reproduce_publication_evidence.py'
+      - 'docs/PR88_INDEPENDENT_ARTIFACT_REPRODUCTION.md'
+      - '.github/workflows/pr88-independent-artifact-reproduction.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  reproduce-publication-evidence:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact PR88 head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Static-check independent verifier
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/reproduce_publication_evidence.py
+          python3 tools/reproduce_publication_evidence.py --help >/dev/null
+
+      - name: Re-download pinned canonical artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/pr88"
+          mkdir -p "$out"
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts"
+          headers=(
+            -H "Authorization: Bearer ${GH_TOKEN}"
+            -H "Accept: application/vnd.github+json"
+            -H "X-GitHub-Api-Version: 2022-11-28"
+          )
+
+          curl --fail --silent --show-error --location "${headers[@]}" \
+            "$api/11961213712/zip" -o "$out/pr62.zip"
+          curl --fail --silent --show-error --location "${headers[@]}" \
+            "$api/11971060916/zip" -o "$out/pr66.zip"
+          curl --fail --silent --show-error --location "${headers[@]}" \
+            "$api/12027088809/zip" -o "$out/pr80.zip"
+
+          sha256sum "$out/pr62.zip" "$out/pr66.zip" "$out/pr80.zip" | tee "$out/zip-sha256.txt"
+          echo '0bd64d43ba48fda4c9e0752ea6acafc1c9fa8ddb7eec2f2fdabc88d1574029ff' | grep -Fq "$(sha256sum "$out/pr62.zip" | cut -d' ' -f1)"
+          echo 'c4a3d64af948afd03daa1e983ee2d75eadf838ca94bdc59103c25ff5575dd299' | grep -Fq "$(sha256sum "$out/pr66.zip" | cut -d' ' -f1)"
+          echo '617bb4c9c847b8c236dea95caf39119569d66422038be32f5498502298eef100' | grep -Fq "$(sha256sum "$out/pr80.zip" | cut -d' ' -f1)"
+
+      - name: Independently recompute PR62 PR66 PR80 evidence
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/pr88"
+          python3 tools/reproduce_publication_evidence.py \
+            --manifest evidence/pr87_publication_manifest.json \
+            --pr62 "$out/pr62.zip" \
+            --pr66 "$out/pr66.zip" \
+            --pr80 "$out/pr80.zip" \
+            --output "$out/reproduction.json"
+          cat "$out/reproduction.json"
+
+      - name: Enforce reproduced claim boundary
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          p=Path(os.environ['RUNNER_TEMP'])/'pr88'/'reproduction.json'
+          d=json.loads(p.read_text())
+          assert d['schema']=='ades-pr88-independent-artifact-reproduction-v1'
+          assert d['status']=='PASS'
+          assert d['frozen_candidate']=='cf7cbc3ed7d9d37ad673a540485a1eee781d47fe'
+          assert d['claim_boundary']['performance']=='SCOPED_PRACTICAL_SOTA_EVIDENCE_REPRODUCED'
+          assert d['claim_boundary']['broad_algorithmic_novelty']=='NO_GO_UNCHANGED'
+          assert d['claim_boundary']['population_inference']=='NOT_ESTABLISHED'
+          assert d['claim_boundary']['universal_or_theoretical_sota']=='NOT_ESTABLISHED'
+          e=d['artifacts']
+          assert set(e)=={
+            'E1_PR62_BOOST_NY',
+            'E2_PR66_VELOGRAPHX_NY_SOURCE_REUSE',
+            'E3_PR80_VELOGRAPHX_NONROAD',
+          }
+          for item in e.values():
+              assert item['cells']==24
+              assert item['exact_cells']==24
+              assert item['total_loss_cells']==0
+              assert item['query_loss_cells']==0
+              assert item['minimum_total_cell_ratio']>1
+              assert item['minimum_query_cell_ratio']>1
+          assert e['E1_PR62_BOOST_NY']['locality_percent_values']==[0]
+          assert e['E2_PR66_VELOGRAPHX_NY_SOURCE_REUSE']['family_cache_hits']['hot-pool-2']==588
+          assert e['E2_PR66_VELOGRAPHX_NY_SOURCE_REUSE']['family_cache_hits']['hot-pool-4']==576
+          assert e['E2_PR66_VELOGRAPHX_NY_SOURCE_REUSE']['family_cache_hits']['rotating-hot-4']==576
+          assert e['E3_PR80_VELOGRAPHX_NONROAD']['velographx_cache_hits']==996
+          assert e['E3_PR80_VELOGRAPHX_NONROAD']['velographx_cache_misses']==444
+          assert e['E3_PR80_VELOGRAPHX_NONROAD']['velographx_cache_evictions']==204
+          print('PR88 INDEPENDENT REPRODUCTION PASS')
+          PY
+
+      - name: Prove PR88 is evidence-only
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha || 'bfbe7f60bdd44d050920d3a2a4e6bcb52db472fc' }}"
+          git diff --name-only "$base" HEAD | tee "${RUNNER_TEMP}/pr88/changed.txt"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          changed=set((Path(os.environ['RUNNER_TEMP'])/'pr88'/'changed.txt').read_text().splitlines())
+          allowed={
+            'tools/reproduce_publication_evidence.py',
+            'docs/PR88_INDEPENDENT_ARTIFACT_REPRODUCTION.md',
+            '.github/workflows/pr88-independent-artifact-reproduction.yml',
+          }
+          extra=changed-allowed
+          missing=allowed-changed
+          if extra:
+              raise SystemExit(f'PR88 modified non-evidence surfaces: {sorted(extra)}')
+          if missing:
+              raise SystemExit(f'PR88 expected evidence surfaces missing from diff: {sorted(missing)}')
+          print('PR88 EVIDENCE-ONLY DIFF PASS')
+          PY
+
+      - name: Upload independent reproduction report
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr88-independent-reproduction-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            ${{ runner.temp }}/pr88/reproduction.json
+            ${{ runner.temp }}/pr88/zip-sha256.txt
+            ${{ runner.temp }}/pr88/changed.txt
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Record retained artifact digest
+        run: |
+          set -euo pipefail
+          echo "artifact-id=${{ steps.upload.outputs.artifact-id }}"
+          echo "artifact-digest=${{ steps.upload.outputs.artifact-digest }}"
