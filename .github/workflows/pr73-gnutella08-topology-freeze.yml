@@ -12,8 +12,17 @@ on:
 permissions:
   contents: read
 
+env:
+  PR73_GZIP_SHA256: cb3019062be21e55b03f19a73e88edf34693bafb68ae581621cc7a037fa604a9
+  PR73_CANONICAL_SHA256: 4554021f32967c69b68ccf59f9d85b83b66a6c0413b721112a10741858fdf845
+  PR73_RAW_ROWS: '20777'
+  PR73_DUPLICATES: '0'
+  PR73_SELF_LOOPS: '0'
+  PR73_MIN_ID: '0'
+  PR73_MAX_ID: '6300'
+
 jobs:
-  discover-topology:
+  freeze-topology:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -22,7 +31,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Freeze Stage-A inputs
+      - name: Freeze Stage-B inputs
         run: |
           set -euo pipefail
           mkdir -p evidence/pr73/provenance evidence/pr73/source
@@ -30,9 +39,9 @@ jobs:
           sha256sum \
             docs/PR73_GNUTELLA08_TOPOLOGY_FREEZE.md \
             tools/freeze_pr73_gnutella08.py \
-            > evidence/pr73/provenance/pr73-stage-a-input-sha256.txt
+            > evidence/pr73/provenance/pr73-stage-b-input-sha256.txt
 
-      - name: Fetch exact public SNAP artifact
+      - name: Fetch fresh exact public SNAP artifact
         run: |
           set -euo pipefail
           curl --fail --location --silent --show-error \
@@ -42,39 +51,52 @@ jobs:
           test -s evidence/pr73/source/p2p-Gnutella08.txt.gz
           curl --version | head -1 > evidence/pr73/provenance/curl-version.txt
 
-      - name: Discover exact representation and validate published structure
-        id: discover
+      - name: Validate hash-pinned canonical topology
+        id: freeze
         run: |
           set +e
           python3 tools/freeze_pr73_gnutella08.py \
             --input-gz evidence/pr73/source/p2p-Gnutella08.txt.gz \
-            --out evidence/pr73/frozen
+            --out evidence/pr73/frozen \
+            --expected-gzip-sha256 "$PR73_GZIP_SHA256" \
+            --expected-canonical-sha256 "$PR73_CANONICAL_SHA256" \
+            --expected-raw-rows "$PR73_RAW_ROWS" \
+            --expected-duplicates "$PR73_DUPLICATES" \
+            --expected-self-loops "$PR73_SELF_LOOPS" \
+            --expected-min-id "$PR73_MIN_ID" \
+            --expected-max-id "$PR73_MAX_ID"
           rc=$?
-          echo "$rc" > evidence/pr73/discovery-exit-code.txt
+          echo "$rc" > evidence/pr73/freeze-exit-code.txt
           echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
           exit 0
 
-      - name: Enforce Stage-A structural discovery
+      - name: Enforce Stage-B canonical qualification
         run: |
           python3 - <<'PY'
           import json
           from pathlib import Path
           d = json.loads(Path('evidence/pr73/frozen/manifest.json').read_text())
           assert d['schema'] == 'ades-pr73-gnutella08-topology-freeze-v1'
-          assert d['stage'] == 'discovery'
+          assert d['stage'] == 'canonical'
           assert d['source_url'] == 'https://snap.stanford.edu/data/p2p-Gnutella08.txt.gz'
+          assert d['gzip_sha256'] == 'cb3019062be21e55b03f19a73e88edf34693bafb68ae581621cc7a037fa604a9'
+          assert d['canonical_unique_edge_list_sha256'] == '4554021f32967c69b68ccf59f9d85b83b66a6c0413b721112a10741858fdf845'
+          assert d['all_representation_pins_supplied'] is True
+          assert d['observed']['raw_data_rows'] == 20777
           assert d['observed']['unique_nodes'] == 6301
           assert d['observed']['unique_directed_edges'] == 20777
+          assert d['observed']['duplicate_rows'] == 0
+          assert d['observed']['self_loops'] == 0
+          assert d['observed']['min_node_id'] == 0
+          assert d['observed']['max_node_id'] == 6300
           assert d['observed']['largest_wcc_nodes'] == 6299
           assert d['observed']['largest_wcc_edges'] == 20776
           assert d['observed']['largest_scc_nodes'] == 2068
           assert d['observed']['largest_scc_edges'] == 9313
-          assert len(d['gzip_sha256']) == 64
-          assert len(d['canonical_unique_edge_list_sha256']) == 64
           assert d['failures'] == []
           assert d['comparative_timing_executed'] is False
-          assert d['disposition'] == 'DISCOVERY_STRUCTURALLY_VALID_NOT_CANONICALLY_FROZEN'
-          print('PR73 STAGE-A DISCOVERY PASS')
+          assert d['disposition'] == 'QUALIFIED_EXTERNAL_DIRECTED_TOPOLOGY_P2P_GNUTELLA08'
+          print('PR73 STAGE-B CANONICAL FREEZE PASS')
           print('gzip_sha256=', d['gzip_sha256'])
           print('canonical_sha256=', d['canonical_unique_edge_list_sha256'])
           print('observed=', json.dumps(d['observed'], sort_keys=True))
@@ -88,22 +110,33 @@ jobs:
           {
             echo "head_sha=${GITHUB_SHA}"
             echo "branch=pr73-gnutella08-topology-freeze"
-            echo "stage=A-discovery-only"
+            echo "stage=B-canonical-hash-pinned"
             echo "source_owner=Stanford Network Analysis Project"
             echo "source_name=p2p-Gnutella08"
             echo "source_url=https://snap.stanford.edu/data/p2p-Gnutella08.txt.gz"
             echo "comparative_timing_executed=false"
-            echo "canonical_evidence_admitted=false_until_hash_pinned_stage_b"
-            echo "discovery_exit_code=${{ steps.discover.outputs.exit_code }}"
+            echo "stage_a_head=ec8b32bee5838c32638d759df0418f6e9b4b3d3e"
+            echo "stage_a_run=38842626427"
+            echo "stage_a_job=116785947358"
+            echo "stage_a_artifact=12021379965"
+            echo "stage_a_artifact_digest=sha256:baf7cebcd86a2254b14f6f7485749a175194716d5461919c86fad6d859c0912d"
+            echo "expected_gzip_sha256=${PR73_GZIP_SHA256}"
+            echo "expected_canonical_sha256=${PR73_CANONICAL_SHA256}"
+            echo "expected_raw_rows=${PR73_RAW_ROWS}"
+            echo "expected_duplicates=${PR73_DUPLICATES}"
+            echo "expected_self_loops=${PR73_SELF_LOOPS}"
+            echo "expected_min_id=${PR73_MIN_ID}"
+            echo "expected_max_id=${PR73_MAX_ID}"
+            echo "freeze_exit_code=${{ steps.freeze.outputs.exit_code }}"
             python3 --version
             uname -a
           } > evidence/pr73/provenance/environment.txt
 
-      - name: Upload PR73 Stage-A evidence
+      - name: Upload PR73 canonical evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ades-pr73-gnutella08-discovery-${{ github.event.pull_request.head.sha || github.sha }}
+          name: ades-pr73-gnutella08-canonical-${{ github.event.pull_request.head.sha || github.sha }}
           path: evidence/pr73
           if-no-files-found: error
           retention-days: 90
