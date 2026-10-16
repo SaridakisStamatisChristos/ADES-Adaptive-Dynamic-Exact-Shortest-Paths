@@ -1,0 +1,249 @@
+name: ADES PR90 submission readiness
+
+on:
+  push:
+    branches: [pr90-submission-readiness]
+  pull_request:
+    paths:
+      - 'paper/EXPERIMENT_ENVIRONMENT.md'
+      - 'paper/ARTIFACT_README.md'
+      - 'paper/submission.css'
+      - 'docs/PR90_SUBMISSION_READINESS_AUDIT.md'
+      - '.github/workflows/pr90-submission-readiness.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  render-and-audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact PR90 head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Install document render toolchain
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y pandoc weasyprint poppler-utils
+          pandoc --version | head -2
+          weasyprint --version
+          pdfinfo -v 2>&1 | head -1 || true
+
+      - name: Verify inherited scientific package before rendering
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          manuscript = Path('paper/ADES_MANUSCRIPT.md').read_text()
+          bibliography = Path('paper/references.bib').read_text()
+          manifest = json.loads(Path('evidence/pr87_publication_manifest.json').read_text())
+          novelty = json.loads(Path('evidence/pr86_prior_art_novelty_ledger.json').read_text())
+
+          assert manifest['frozen_candidate'] == 'cf7cbc3ed7d9d37ad673a540485a1eee781d47fe'
+          assert manifest['performance_decision'] == 'GO_SCOPED_PRACTICAL_SOTA'
+          assert manifest['broad_algorithmic_novelty_decision'] == 'NO_GO'
+          assert novelty['broad_algorithmic_novelty_decision'] == 'NO_GO'
+          assert novelty['integrated_systems_novelty'] == 'NOVELTY_UNESTABLISHED_POSSIBLY_DISTINCT'
+          assert 'bibliography: references.bib' in manuscript
+          assert '10.1006/jagm.1996.0046' in bibliography
+          assert '10.5281/zenodo.19184398' in bibliography
+          print('PR90 INHERITED SCIENTIFIC PACKAGE PASS')
+          PY
+
+      - name: Validate environment and reviewer artifact disclosures
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          env = Path('paper/EXPERIMENT_ENVIRONMENT.md').read_text().lower()
+          art = Path('paper/ARTIFACT_README.md').read_text().lower()
+          audit = Path('docs/PR90_SUBMISSION_READINESS_AUDIT.md').read_text().lower().replace('**','')
+
+          for phrase in (
+              'amd epyc 9v45 96-core processor',
+              'amd epyc 7763 64-core processor',
+              '4 logical cpus',
+              'not all executed on the same physical cpu model',
+              'virtualized hosted machines',
+          ):
+              assert phrase in env
+          assert 'python 3.12.3' in env
+          assert 'gcc 13.3.0' in env
+          assert 'cmake 3.31.6' in env
+
+          pins = {
+              '38711826306', '11961213712',
+              '38730045262', '11971060916',
+              '38856829047', '12027088809',
+              '38865585699', '12030529254',
+              'edb03af36c4c6188866c0ec10a86c2394ea95ea8d185e93ee375a224534b1ee5',
+          }
+          for pin in pins:
+              assert pin in art
+          assert 'independent third-party hardware replication' in art
+          assert 'does not establish source-policy breadth' in art.replace('**','')
+          assert 'adapter-mediated' in art
+          assert 'not population-level' in art or 'population inference' in art
+
+          for phrase in (
+              'comparator breadth remains limited',
+              'adapter-mediated',
+              'logical-state contract, not equal rss',
+              'slice-level, not population-level',
+              'broad algorithmic novelty remains rejected',
+              'not third-party replication',
+              'fixed topology',
+              'pending_executable_gate',
+          ):
+              assert phrase in audit
+          print('PR90 DISCLOSURE PASS')
+          PY
+
+      - name: Render citation-complete standalone HTML
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/pr90
+          cd paper
+          pandoc \
+            ADES_MANUSCRIPT.md \
+            EXPERIMENT_ENVIRONMENT.md \
+            --citeproc \
+            --metadata=reference-section-title:References \
+            --standalone \
+            --embed-resources \
+            --resource-path=. \
+            --css=submission.css \
+            -o /tmp/pr90/ADES_MANUSCRIPT.html
+          test -s /tmp/pr90/ADES_MANUSCRIPT.html
+
+      - name: Convert standalone HTML to PDF
+        run: |
+          set -euo pipefail
+          weasyprint /tmp/pr90/ADES_MANUSCRIPT.html /tmp/pr90/ADES_MANUSCRIPT.pdf
+          test -s /tmp/pr90/ADES_MANUSCRIPT.pdf
+          pdfinfo /tmp/pr90/ADES_MANUSCRIPT.pdf | tee /tmp/pr90/pdfinfo.txt
+          pages="$(awk -F: '/^Pages:/ {gsub(/ /,"",$2); print $2}' /tmp/pr90/pdfinfo.txt)"
+          test -n "$pages"
+          test "$pages" -ge 8
+          test "$pages" -le 80
+          pdftotext -layout /tmp/pr90/ADES_MANUSCRIPT.pdf /tmp/pr90/ADES_MANUSCRIPT.txt
+          test -s /tmp/pr90/ADES_MANUSCRIPT.txt
+
+      - name: Audit rendered PDF text for citations evidence and boundaries
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path('/tmp/pr90/ADES_MANUSCRIPT.txt').read_text(errors='replace')
+          low = text.lower()
+          compact = re.sub(r'\s+', ' ', low)
+
+          assert not re.search(r'\[@[A-Za-z0-9_:-]+', text), 'unresolved Pandoc citation syntax'
+          assert '@ramalingam1996incremental' not in text, 'unresolved Ramalingam citation key'
+          assert '@rai2026alsssp' not in text, 'unresolved ALSSSP citation key'
+
+          assert 'ades: exact adaptive source residency for online dynamic shortest paths under bounded state' in compact, 'paper title missing'
+          assert 'experimental environment provenance' in compact, 'environment appendix missing'
+          assert 'references' in compact, 'references heading missing'
+
+          for value in ('5.112681', '5.059393', '15.561191', '3.897866', '157.677417', '30.199379'):
+              assert value in text, f'central value missing: {value}'
+          assert '24/24' in text, '24/24 exact marker missing'
+          assert 'cf7cbc3ed7d9d37ad673a540485a1eee781d47fe' in text, 'frozen candidate missing'
+
+          for phrase in (
+              'adapter-mediated',
+              'not a requirement that both consume equal actual bytes',
+              'does not establish source-policy breadth',
+              'broad algorithmic novelty is rejected',
+              'not an external independent replication',
+              'not all executed on the same physical cpu model',
+          ):
+              assert phrase in compact, f'claim boundary missing: {phrase}'
+          assert 'population-level' in compact, 'population-inference boundary missing'
+          assert 'universal or theoretical' in compact, 'universal/theoretical boundary missing'
+
+          assert 'amd epyc 9v45' in compact, 'PR62 CPU provenance missing'
+          assert 'amd epyc 7763' in compact, 'PR66/80 CPU provenance missing'
+          assert '4 logical cpus' in compact, 'CPU allocation provenance missing'
+
+          for needle in (
+              'ramalingam', 'frigioni', 'king', 'tinylfu',
+              '10.1006/jagm.1996.0046', '10.5281/zenodo.19184398'
+          ):
+              assert needle in compact, f'bibliography identity missing: {needle}'
+          print('PR90 RENDERED PDF TEXT AUDIT PASS')
+          PY
+
+      - name: Prove PR90 is publication-only
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha || 'a780859668dbdad3cd9efd3ca0ea77ded5775b7d' }}"
+          git diff --name-only "$base" HEAD | tee /tmp/pr90/changed.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          changed = set(Path('/tmp/pr90/changed.txt').read_text().splitlines())
+          allowed = {
+              'paper/EXPERIMENT_ENVIRONMENT.md',
+              'paper/ARTIFACT_README.md',
+              'paper/submission.css',
+              'docs/PR90_SUBMISSION_READINESS_AUDIT.md',
+              '.github/workflows/pr90-submission-readiness.yml',
+          }
+          extra = changed - allowed
+          missing = allowed - changed
+          if extra:
+              raise SystemExit(f'PR90 modified non-publication surfaces: {sorted(extra)}')
+          if missing:
+              raise SystemExit(f'PR90 expected publication surfaces absent: {sorted(missing)}')
+          print('PR90 PUBLICATION-ONLY DIFF PASS')
+          PY
+
+      - name: Record rendered package hashes
+        run: |
+          set -euo pipefail
+          sha256sum \
+            /tmp/pr90/ADES_MANUSCRIPT.pdf \
+            /tmp/pr90/ADES_MANUSCRIPT.html \
+            paper/ADES_MANUSCRIPT.md \
+            paper/EXPERIMENT_ENVIRONMENT.md \
+            paper/ARTIFACT_README.md \
+            paper/references.bib \
+            paper/submission.css \
+            docs/PR90_SUBMISSION_READINESS_AUDIT.md \
+            > /tmp/pr90/submission-readiness-sha256.txt
+          cat /tmp/pr90/submission-readiness-sha256.txt
+
+      - name: Upload rendered reviewer package
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr90-submission-readiness-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            /tmp/pr90/ADES_MANUSCRIPT.pdf
+            /tmp/pr90/ADES_MANUSCRIPT.html
+            /tmp/pr90/ADES_MANUSCRIPT.txt
+            /tmp/pr90/pdfinfo.txt
+            /tmp/pr90/submission-readiness-sha256.txt
+            paper/ADES_MANUSCRIPT.md
+            paper/EXPERIMENT_ENVIRONMENT.md
+            paper/ARTIFACT_README.md
+            paper/references.bib
+            paper/submission.css
+            docs/PR90_SUBMISSION_READINESS_AUDIT.md
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Record retained reviewer-package identity
+        run: |
+          set -euo pipefail
+          echo "artifact-id=${{ steps.upload.outputs.artifact-id }}"
+          echo "artifact-digest=${{ steps.upload.outputs.artifact-digest }}"
+          echo 'PR90 DISPOSITION=SUBMISSION_READY_WITH_DECLARED_LIMITATIONS'
