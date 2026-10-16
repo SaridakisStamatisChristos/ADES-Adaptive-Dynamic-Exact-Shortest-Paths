@@ -1,0 +1,273 @@
+name: ADES PR89 submission manuscript
+
+on:
+  push:
+    branches: [pr89-submission-manuscript]
+  pull_request:
+    paths:
+      - 'paper/ADES_MANUSCRIPT.md'
+      - 'paper/references.bib'
+      - 'docs/PR89_SUBMISSION_MANUSCRIPT.md'
+      - '.github/workflows/pr89-submission-manuscript.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-submission-manuscript:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact PR89 head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Resolve manuscript citation keys against bibliography
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          manuscript = Path('paper/ADES_MANUSCRIPT.md').read_text()
+          bib = Path('paper/references.bib').read_text()
+
+          cited = set(re.findall(r'@([A-Za-z0-9_:-]+)', manuscript))
+          entries = re.findall(r'@[A-Za-z]+\s*\{\s*([^,\s]+)\s*,', bib)
+          entry_set = set(entries)
+          if len(entries) != len(entry_set):
+              raise SystemExit('duplicate BibTeX citation key')
+          missing = cited - entry_set
+          if missing:
+              raise SystemExit(f'unresolved manuscript citations: {sorted(missing)}')
+          uncited = entry_set - cited
+          if uncited:
+              raise SystemExit(f'uncited PR89 bibliography entries: {sorted(uncited)}')
+
+          required = {
+              'ramalingam1996incremental',
+              'frigioni2000fully',
+              'king2001space',
+              'tripathi2018incremental',
+              'jensen2012effective',
+              'li2017refreshment',
+              'ammar2022optimizing',
+              'einziger2017tinylfu',
+              'einziger2023access',
+              'gupta1999selection',
+              'bok2022cost',
+              'rai2026alsssp',
+              'siek2002boost',
+          }
+          if entry_set != required:
+              raise SystemExit(f'bibliography set drift: got={sorted(entry_set)}')
+          print(f'PR89 CITATION RESOLUTION PASS ({len(cited)} cited entries)')
+          PY
+
+      - name: Validate rechecked bibliographic identities
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          bib = Path('paper/references.bib').read_text().lower()
+
+          dois = re.findall(r'doi\s*=\s*\{([^}]+)\}', bib)
+          if len(dois) != len(set(dois)):
+              raise SystemExit('duplicate DOI identity in bibliography')
+          required_dois = {
+              '10.1006/jagm.1996.0046',
+              '10.1006/jagm.1999.1048',
+              '10.1007/3-540-44679-6_30',
+              '10.1002/cpe.4500',
+              '10.1145/2213836.2213872',
+              '10.1016/j.eswa.2016.08.011',
+              '10.14778/3551793.3551862',
+              '10.1145/3149371',
+              '10.1145/3572778',
+              '10.1007/3-540-49257-7_28',
+              '10.3390/electronics11040660',
+              '10.5281/zenodo.19184398',
+          }
+          if set(dois) != required_dois:
+              raise SystemExit(f'DOI set drift: got={sorted(dois)}')
+          required_phrases = [
+              'journal = {journal of algorithms}',
+              'volume  = {21}',
+              'pages   = {267--305}',
+              'volume  = {34}',
+              'pages   = {251--281}',
+              'volume    = {2108}',
+              'volume  = {30}',
+              'number  = {18}',
+              'pages   = {e4500}',
+              'pages     = {313--324}',
+              'journal = {proceedings of the vldb endowment}',
+              'volume  = {15}',
+              'number  = {11}',
+              'volume  = {19}',
+              'pages   = {8:1--8:29}',
+              'volume    = {1540}',
+              'journal = {electronics}',
+          ]
+          for phrase in required_phrases:
+              if phrase not in bib:
+                  raise SystemExit(f'missing revalidated bibliography metadata: {phrase}')
+          print('PR89 BIBLIOGRAPHY IDENTITY PASS')
+          PY
+
+      - name: Cross-check manuscript numbers against PR87 machine manifest
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path('evidence/pr87_publication_manifest.json').read_text())
+          text = Path('paper/ADES_MANUSCRIPT.md').read_text()
+          low = text.lower()
+          plain = low.replace('**','')
+          ev = {x['id']: x for x in manifest['central_evidence']}
+
+          assert manifest['frozen_candidate'] == 'cf7cbc3ed7d9d37ad673a540485a1eee781d47fe'
+          assert manifest['frozen_candidate'] in text
+          assert manifest['performance_decision'] == 'GO_SCOPED_PRACTICAL_SOTA'
+          assert manifest['broad_algorithmic_novelty_decision'] == 'NO_GO'
+          assert manifest['integrated_systems_novelty'] == 'NOVELTY_UNESTABLISHED_POSSIBLY_DISTINCT'
+
+          e1 = ev['E1_PR62_BOOST_NY']
+          e2 = ev['E2_PR66_VELOGRAPHX_NY_SOURCE_REUSE']
+          e3 = ev['E3_PR80_VELOGRAPHX_NONROAD']
+
+          checks = {
+              '5.112681': e1['total_ratio_comparator_over_ades_geomean'],
+              '5.059393': e1['query_ratio_comparator_over_ades_geomean'],
+              '15.561191': e2['total_ratio_comparator_over_ades_geomean'],
+              '3.897866': e2['query_ratio_comparator_over_ades_geomean'],
+              '157.677417': e3['total_ratio_comparator_over_ades_geomean'],
+              '30.199379': e3['query_ratio_comparator_over_ades_geomean'],
+          }
+          for rendered, value in checks.items():
+              if rendered not in text:
+                  raise SystemExit(f'manuscript missing central rounded value {rendered} from {value}')
+
+          assert '24/24' in text
+          assert 'zero total/query loss cells' in low or ('total-time loss cells | `0`' in low and 'query-time loss cells | `0`' in low)
+          assert 'locality_percent=0' in text
+          assert 'does not establish source-policy breadth' in low
+          assert 'adapter-mediated' in low
+          assert 'upstream behavior is fixed-source' in low
+          assert 'common cap' in low or 'common maximum allowance' in low
+          assert 'not a requirement that both consume equal actual bytes' in low
+          assert 'not population-level' in low or 'not population inference' in low
+          assert 'broad algorithmic novelty is rejected' in low
+          assert 'integrated-system originality remains unestablished' in low
+          assert 'universal or theoretical' in plain
+          assert 'we do not claim' in plain or 'we also do not claim' in plain
+          print('PR89 MANIFEST / CLAIM BOUNDARY PASS')
+          PY
+
+      - name: Pin PR88 independent-recomputation provenance
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('paper/ADES_MANUSCRIPT.md').read_text().lower()
+          contract = Path('docs/PR89_SUBMISSION_MANUSCRIPT.md').read_text().lower()
+          for s in (
+              '38865585699',
+              '12030529254',
+              'edb03af36c4c6188866c0ec10a86c2394ea95ea8d185e93ee375a224534b1ee5',
+          ):
+              assert s in text
+              assert s in contract
+          assert 'ignores each artifact' in text or 'ignores their archived aggregate verdicts' in text
+          assert 'not an external independent replication' in text or 'not external third-party replication' in text
+          assert 'independent recomputation' in text
+          assert 'independent recomputation' in contract
+          print('PR89 PR88 PROVENANCE PASS')
+          PY
+
+      - name: Preserve negative evidence and novelty NO-GO
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          manuscript = Path('paper/ADES_MANUSCRIPT.md').read_text().lower().replace('**','')
+          novelty = json.loads(Path('evidence/pr86_prior_art_novelty_ledger.json').read_text())
+          assert novelty['broad_algorithmic_novelty_decision'] == 'NO_GO'
+          assert novelty['integrated_systems_novelty'] == 'NOVELTY_UNESTABLISHED_POSSIBLY_DISTINCT'
+          assert 'pr57-v1' in manuscript and 'rejected' in manuscript
+          assert 'large affected subtree implies rebuild is cheaper' in manuscript
+          assert 'partially refuted' in manuscript or 'refuted that rule' in manuscript
+          assert 'failure to find such a system is not proof of novelty' in manuscript
+          assert 'broad algorithmic novelty is rejected' in manuscript
+          assert 'integrated-system originality remains unestablished' in manuscript
+          assert 'we therefore retain the conservative classification' in manuscript
+          print('PR89 NEGATIVE / NOVELTY BOUNDARY PASS')
+          PY
+
+      - name: Preserve audited scaffold as historical artifact
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD:paper/ADES_MANUSCRIPT_SCAFFOLD.md)"
+          test "$actual" = 'a48ae55d489b9c82f791c3c4bcf0d30637ac6a4b'
+          echo "PR89 HISTORICAL SCAFFOLD PASS blob=$actual"
+
+      - name: Prove PR89 is manuscript-only
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha || '41bba772247e9006254286200c26849e4dd2db05' }}"
+          git diff --name-only "$base" HEAD | tee /tmp/pr89-changed.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          changed = set(Path('/tmp/pr89-changed.txt').read_text().splitlines())
+          allowed = {
+              'paper/ADES_MANUSCRIPT.md',
+              'paper/references.bib',
+              'docs/PR89_SUBMISSION_MANUSCRIPT.md',
+              '.github/workflows/pr89-submission-manuscript.yml',
+          }
+          extra = changed - allowed
+          missing = allowed - changed
+          if extra:
+              raise SystemExit(f'PR89 modified non-manuscript surfaces: {sorted(extra)}')
+          if missing:
+              raise SystemExit(f'PR89 expected manuscript surfaces absent: {sorted(missing)}')
+          print('PR89 MANUSCRIPT-ONLY DIFF PASS')
+          PY
+
+      - name: Record submission-source hashes
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/pr89
+          sha256sum \
+            paper/ADES_MANUSCRIPT.md \
+            paper/references.bib \
+            docs/PR89_SUBMISSION_MANUSCRIPT.md \
+            paper/ADES_MANUSCRIPT_SCAFFOLD.md \
+            evidence/pr87_publication_manifest.json \
+            evidence/pr86_prior_art_novelty_ledger.json \
+            > /tmp/pr89/submission-sha256.txt
+          cat /tmp/pr89/submission-sha256.txt
+
+      - name: Upload submission source package
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr89-submission-source-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            paper/ADES_MANUSCRIPT.md
+            paper/references.bib
+            docs/PR89_SUBMISSION_MANUSCRIPT.md
+            /tmp/pr89/submission-sha256.txt
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Record retained submission artifact identity
+        run: |
+          set -euo pipefail
+          echo "artifact-id=${{ steps.upload.outputs.artifact-id }}"
+          echo "artifact-digest=${{ steps.upload.outputs.artifact-digest }}"
