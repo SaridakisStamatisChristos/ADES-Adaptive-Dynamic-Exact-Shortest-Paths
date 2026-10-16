@@ -1,0 +1,109 @@
+name: ADES PR73 p2p-Gnutella08 topology freeze
+
+on:
+  push:
+    branches: [pr73-gnutella08-topology-freeze]
+  pull_request:
+    paths:
+      - 'docs/PR73_GNUTELLA08_TOPOLOGY_FREEZE.md'
+      - 'tools/freeze_pr73_gnutella08.py'
+      - '.github/workflows/pr73-gnutella08-topology-freeze.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  discover-topology:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact PR73 head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Freeze Stage-A inputs
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/pr73/provenance evidence/pr73/source
+          python3 -m py_compile tools/freeze_pr73_gnutella08.py
+          sha256sum \
+            docs/PR73_GNUTELLA08_TOPOLOGY_FREEZE.md \
+            tools/freeze_pr73_gnutella08.py \
+            > evidence/pr73/provenance/pr73-stage-a-input-sha256.txt
+
+      - name: Fetch exact public SNAP artifact
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error \
+            --retry 3 --retry-all-errors \
+            --output evidence/pr73/source/p2p-Gnutella08.txt.gz \
+            https://snap.stanford.edu/data/p2p-Gnutella08.txt.gz
+          test -s evidence/pr73/source/p2p-Gnutella08.txt.gz
+          curl --version | head -1 > evidence/pr73/provenance/curl-version.txt
+
+      - name: Discover exact representation and validate published structure
+        id: discover
+        run: |
+          set +e
+          python3 tools/freeze_pr73_gnutella08.py \
+            --input-gz evidence/pr73/source/p2p-Gnutella08.txt.gz \
+            --out evidence/pr73/frozen
+          rc=$?
+          echo "$rc" > evidence/pr73/discovery-exit-code.txt
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Enforce Stage-A structural discovery
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          d = json.loads(Path('evidence/pr73/frozen/manifest.json').read_text())
+          assert d['schema'] == 'ades-pr73-gnutella08-topology-freeze-v1'
+          assert d['stage'] == 'discovery'
+          assert d['source_url'] == 'https://snap.stanford.edu/data/p2p-Gnutella08.txt.gz'
+          assert d['observed']['unique_nodes'] == 6301
+          assert d['observed']['unique_directed_edges'] == 20777
+          assert d['observed']['largest_wcc_nodes'] == 6299
+          assert d['observed']['largest_wcc_edges'] == 20776
+          assert d['observed']['largest_scc_nodes'] == 2068
+          assert d['observed']['largest_scc_edges'] == 9313
+          assert len(d['gzip_sha256']) == 64
+          assert len(d['canonical_unique_edge_list_sha256']) == 64
+          assert d['failures'] == []
+          assert d['comparative_timing_executed'] is False
+          assert d['disposition'] == 'DISCOVERY_STRUCTURALLY_VALID_NOT_CANONICALLY_FROZEN'
+          print('PR73 STAGE-A DISCOVERY PASS')
+          print('gzip_sha256=', d['gzip_sha256'])
+          print('canonical_sha256=', d['canonical_unique_edge_list_sha256'])
+          print('observed=', json.dumps(d['observed'], sort_keys=True))
+          PY
+
+      - name: Record R7 provenance
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/pr73/provenance
+          {
+            echo "head_sha=${GITHUB_SHA}"
+            echo "branch=pr73-gnutella08-topology-freeze"
+            echo "stage=A-discovery-only"
+            echo "source_owner=Stanford Network Analysis Project"
+            echo "source_name=p2p-Gnutella08"
+            echo "source_url=https://snap.stanford.edu/data/p2p-Gnutella08.txt.gz"
+            echo "comparative_timing_executed=false"
+            echo "canonical_evidence_admitted=false_until_hash_pinned_stage_b"
+            echo "discovery_exit_code=${{ steps.discover.outputs.exit_code }}"
+            python3 --version
+            uname -a
+          } > evidence/pr73/provenance/environment.txt
+
+      - name: Upload PR73 Stage-A evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr73-gnutella08-discovery-${{ github.event.pull_request.head.sha || github.sha }}
+          path: evidence/pr73
+          if-no-files-found: error
+          retention-days: 90
