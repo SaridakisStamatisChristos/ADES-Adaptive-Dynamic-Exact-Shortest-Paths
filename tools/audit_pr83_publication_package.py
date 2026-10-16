@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 """Adversarially audit the PR81/PR82 scoped-SOTA evidence package.
 
-This tool is intentionally claim-hostile: it does not recompute favorable
-performance statistics. It checks whether the evidence package can support the
-bounded claim without silently broadening statistical, comparator, memory, or
-novelty assumptions.
+The audit is claim-hostile. Scientific defects are emitted as FAIL findings and
+produce a completed FAIL_SCOPED_SOTA_PACKAGE disposition; malformed/missing
+inputs remain hard runtime failures. No performance result is recomputed here.
 """
 from __future__ import annotations
 
 import json
 from pathlib import Path
-import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -24,13 +22,8 @@ def read(path: str) -> str:
 
 
 def finding(fid: str, severity: str, status: str, statement: str, evidence: str) -> dict:
-    return {
-        "id": fid,
-        "severity": severity,
-        "status": status,
-        "statement": statement,
-        "evidence": evidence,
-    }
+    return {"id": fid, "severity": severity, "status": status,
+            "statement": statement, "evidence": evidence}
 
 
 def main() -> int:
@@ -43,130 +36,144 @@ def main() -> int:
 
     findings: list[dict] = []
 
-    # A. Frozen claim contract must remain bounded and unchanged in meaning.
-    assert "**Contract version:** 1.0" in contract
-    assert "universal dynamic-shortest-path SOTA" in contract
-    assert "C-SOTA" in contract
-    assert decision["publication_contract_version"] == "1.0"
-    assert decision["decision"] == "GO_SCOPED_PRACTICAL_SOTA"
+    # A — frozen claim boundary.
+    a_ok = (
+        "**Contract version:** 1.0" in contract
+        and "universal dynamic-shortest-path SOTA" in contract
+        and "C-SOTA" in contract
+        and decision.get("publication_contract_version") == "1.0"
+        and decision.get("decision") == "GO_SCOPED_PRACTICAL_SOTA"
+    )
     findings.append(finding(
-        "A1", "CRITICAL", "PASS",
+        "A1", "CRITICAL", "PASS" if a_ok else "FAIL",
         "The headline decision remains bound to Publication Contract v1.0 rather than a universal SOTA claim.",
-        "Publication contract and PR81 machine-readable decision agree on scoped C-SOTA.",
+        "Publication contract and PR81 machine-readable decision must agree on scoped C-SOTA.",
     ))
 
-    # B. Direct comparator set must be real, pinned, and pass all frozen gates.
+    # B — DIRECT comparator set and all frozen hard gates.
     direct = {c["id"]: c for c in registry["comparators"] if c["status"] == "DIRECT"}
     required_direct = {"boost-graph-dijkstra-recompute", "velographx-weighted-sssp-adapter"}
-    assert required_direct <= set(direct)
-    for cid in required_direct:
-        c = direct[cid]
-        assert c["implementation"]["pinned"] is True
-        assert all(c["gates"][g] == "PASS" for g in registry["hard_gates"])
+    b_ok = required_direct <= set(direct)
+    if b_ok:
+        for cid in required_direct:
+            c = direct[cid]
+            b_ok = b_ok and c["implementation"].get("pinned") is True
+            b_ok = b_ok and all(c["gates"].get(g) == "PASS" for g in registry["hard_gates"])
     findings.append(finding(
-        "B1", "CRITICAL", "PASS",
+        "B1", "CRITICAL", "PASS" if b_ok else "FAIL",
         "The qualified exact-online comparator set contains two pinned DIRECT implementations and both satisfy all frozen hard gates.",
-        "Boost.Graph recomputation and adapter-mediated VeloGraphX are DIRECT in the PR82 registry.",
+        "Boost.Graph recomputation and adapter-mediated VeloGraphX must remain DIRECT under the unchanged registry rules.",
     ))
 
-    # C. VeloGraphX source semantics must never be laundered into a native arbitrary-source claim.
-    velo = direct["velographx-weighted-sssp-adapter"]
-    semantics_text = json.dumps(velo["declared_semantics"], sort_keys=True).lower()
-    assert "adapter" in semantics_text
-    assert "fixed source" in semantics_text or "fixed-source" in semantics_text
-    assert "DIRECT remains adapter-mediated" in pr82
-    assert "native arbitrary-source" in pr81
-    findings.append(finding(
-        "C1", "HIGH", "PASS_WITH_BOUNDARY",
-        "VeloGraphX is a valid DIRECT comparator only through the transparent bounded arbitrary-source adapter; upstream native arbitrary-source semantics are not claimed.",
-        "PR65/PR82 qualification text and PR81 prohibited-wording section preserve this distinction.",
-    ))
-
-    # D. Memory fairness is a matched cap/accounting contract, not equal actual bytes or RSS.
-    pr80 = next(
-        e for c in decision["direct_comparator_evidence"]
-        if c["id"] == "velographx-weighted-sssp-adapter"
-        for e in c["evidence"] if e["campaign"] == "PR80"
+    # C — VeloGraphX arbitrary-source semantics must remain explicitly adapter-mediated.
+    velo = direct.get("velographx-weighted-sssp-adapter", {})
+    semantics_text = json.dumps(velo.get("declared_semantics", {}), sort_keys=True).lower()
+    c_ok = (
+        "adapter" in semantics_text
+        and ("fixed source" in semantics_text or "fixed-source" in semantics_text)
+        and "adapter-mediated" in pr82.lower()
+        and "upstream VeloGraphX natively provides arbitrary-source queries" in pr82
+        and "native arbitrary-source" in pr81
     )
-    budget = next(c for c in decision["direct_comparator_evidence"]
-                  if c["id"] == "velographx-weighted-sssp-adapter")["logical_state_budget_bytes"]
-    assert pr80["velographx_peak_accounted_state_bytes"] <= budget
-    assert pr80["ades_peak_accounted_state_bytes"] <= budget
-    assert pr80["velographx_peak_accounted_state_bytes"] != pr80["ades_peak_accounted_state_bytes"]
-    assert "equal process RSS" in decision["nonclaims"]
     findings.append(finding(
-        "D1", "HIGH", "PASS_WITH_BOUNDARY",
+        "C1", "HIGH", "PASS_WITH_BOUNDARY" if c_ok else "FAIL",
+        "VeloGraphX is a valid DIRECT comparator only through the transparent bounded arbitrary-source adapter; upstream native arbitrary-source semantics are not claimed.",
+        "PR65/PR82 qualification text and PR81 prohibited-wording section must preserve this distinction.",
+    ))
+
+    # Locate PR80 evidence once for memory/statistical checks.
+    velo81 = next(c for c in decision["direct_comparator_evidence"]
+                  if c["id"] == "velographx-weighted-sssp-adapter")
+    pr80 = next(e for e in velo81["evidence"] if e["campaign"] == "PR80")
+    budget = velo81["logical_state_budget_bytes"]
+
+    # D — memory fairness means common cap/accounting, not equal actual memory/RSS.
+    d_ok = (
+        pr80["velographx_peak_accounted_state_bytes"] <= budget
+        and pr80["ades_peak_accounted_state_bytes"] <= budget
+        and pr80["velographx_peak_accounted_state_bytes"] != pr80["ades_peak_accounted_state_bytes"]
+        and "equal process RSS" in decision["nonclaims"]
+    )
+    findings.append(finding(
+        "D1", "HIGH", "PASS_WITH_BOUNDARY" if d_ok else "FAIL",
         "Memory fairness means both systems obey the same auditable persistent-state cap; it does not mean equal actual bytes or equal RSS.",
         f"PR80 accounted peaks: VeloGraphX={pr80['velographx_peak_accounted_state_bytes']} bytes, ADES={pr80['ades_peak_accounted_state_bytes']} bytes, cap={budget} bytes.",
     ))
 
-    # E. PR80 statistics must not be promoted to population-level inference.
-    assert pr80["exact_cells"] == 24
-    assert pr80["total_loss_cells"] == 0 and pr80["query_loss_cells"] == 0
-    assert pr80["total_ci95"][0] > 1 and pr80["query_ci95"][0] > 1
-    assert "population-level dominance over arbitrary graph/workload distributions" in decision["nonclaims"]
+    # E — nested slice robustness must not be promoted to graph-population inference.
+    e_ok = (
+        pr80["exact_cells"] == 24
+        and pr80["total_loss_cells"] == 0
+        and pr80["query_loss_cells"] == 0
+        and pr80["total_ci95"][0] > 1
+        and pr80["query_ci95"][0] > 1
+        and "population-level dominance over arbitrary graph/workload distributions" in decision["nonclaims"]
+    )
     findings.append(finding(
-        "E1", "HIGH", "PASS_WITH_BOUNDARY",
+        "E1", "HIGH", "PASS_WITH_BOUNDARY" if e_ok else "FAIL",
         "The 24 PR80 cells are a preregistered nested slice (3 graph seeds × 4 source families × 2 workload seeds), not 24 independent graph-population samples.",
-        "PR81 nonclaims explicitly prohibit population-level dominance; confidence intervals must be described as slice-level robustness evidence.",
+        "Confidence intervals may be described as robustness evidence for the preregistered slice, not population-level inference over all graphs/workloads.",
     ))
 
-    # F. Context comparators must remain segregated.
+    # F — contextual comparators stay segregated from unrestricted DIRECT evidence.
     contextual = {x["id"] for x in decision["contextual_evidence"]}
-    assert "networkit-11.2.2-nonroad" in contextual
-    assert "graphbolt-historical-cilk-fixed-source" in contextual
-    assert "networkit-dyndijkstra" not in direct
+    f_ok = (
+        "networkit-11.2.2-nonroad" in contextual
+        and "graphbolt-historical-cilk-fixed-source" in contextual
+        and "networkit-dyndijkstra" not in direct
+    )
     findings.append(finding(
-        "F1", "HIGH", "PASS",
+        "F1", "HIGH", "PASS" if f_ok else "FAIL",
         "NetworKit and historical-Cilk GraphBolt results remain contextual and are not counted as unrestricted DIRECT wins for full C-SOTA.",
-        "PR81 contextual-evidence ledger and PR82 registry preserve assumption-class separation.",
+        "PR81 contextual-evidence ledger and PR82 registry must preserve assumption-class separation.",
     ))
 
-    # G. Performance SOTA evidence must not be misrepresented as algorithmic novelty.
-    assert "novelty is **not established**" in readme
-    assert "theoretical or asymptotic SOTA" in decision["nonclaims"]
+    # G — empirical SOTA is not a novelty/asymptotic proof.
+    g_ok = (
+        "novelty is **not established**" in readme
+        and "theoretical or asymptotic SOTA" in decision["nonclaims"]
+    )
     findings.append(finding(
-        "G1", "HIGH", "OPEN_BOUNDARY",
+        "G1", "HIGH", "OPEN_BOUNDARY" if g_ok else "FAIL",
         "Scoped practical performance-SOTA evidence does not establish scholarly novelty of the underlying repair/residency mechanisms or a new asymptotic bound.",
-        "README and PR81 nonclaims retain novelty/asymptotic separation.",
+        "README and PR81 nonclaims must retain novelty/asymptotic separation.",
     ))
 
-    # H. README is deliberately conservative but now stale relative to PR62/66/80.
-    stale_phrase = "publication-grade evidence should rerun the complete matrix on one fixed commit across multiple independent workload seeds and longer traces"
-    assert stale_phrase in readme
+    # H — public README is conservative but stale relative to PR62/66/80.
+    stale_phrase = (
+        "publication-grade evidence should rerun the complete matrix on one fixed commit "
+        "across multiple independent workload seeds and longer traces"
+    )
+    h_ok = stale_phrase in readme
     findings.append(finding(
-        "H1", "MEDIUM", "REPAIR_RECOMMENDED",
+        "H1", "MEDIUM", "REPAIR_RECOMMENDED" if h_ok else "FAIL",
         "The README evidence-status section predates the completed fresh fixed-candidate multi-seed holdouts and should be updated before public manuscript/release positioning.",
-        "The stale sentence is conservative rather than falsely favorable, so it does not invalidate PR81; it creates documentation drift.",
+        "The stale sentence is conservative rather than falsely favorable, so it is a documentation-drift repair rather than an invalidation of PR81.",
     ))
 
-    # I. Historical PR81 manifest intentionally records the then-pending registry action.
-    velo81 = next(c for c in decision["direct_comparator_evidence"]
-                  if c["id"] == "velographx-weighted-sssp-adapter")
-    assert velo81["class"] == "DIRECT_PENDING_REGISTRY_RECONCILIATION"
-    assert velo["status"] == "DIRECT"
+    # I — preserve PR81 as a historical snapshot after PR82 closes its registry action.
+    i_ok = velo81.get("class") == "DIRECT_PENDING_REGISTRY_RECONCILIATION" and velo.get("status") == "DIRECT"
     findings.append(finding(
-        "I1", "LOW", "CLOSED_BY_PR82",
-        "PR81's historical manifest still says DIRECT_PENDING_REGISTRY_RECONCILIATION; PR82 has now closed that action in the canonical registry.",
-        "Preserve PR81 as an immutable historical snapshot; do not rewrite it retroactively.",
+        "I1", "LOW", "CLOSED_BY_PR82" if i_ok else "FAIL",
+        "PR81's historical manifest records the then-pending registry reconciliation; PR82 closes it in the canonical registry without retroactively rewriting PR81.",
+        "Historical evidence snapshots should remain immutable.",
     ))
 
-    # J. Strong numerical evidence is necessary but not sufficient to expand the claim universe.
-    assert pr80["minimum_total_cell_ratio"] > 1
-    assert pr80["minimum_query_cell_ratio"] > 1
-    assert pr80["strong_preregistered_pass"] is True
-    assert "superiority over every published algorithm" in decision["nonclaims"]
+    # J — even large margins do not license universal claims.
+    j_ok = (
+        pr80["minimum_total_cell_ratio"] > 1
+        and pr80["minimum_query_cell_ratio"] > 1
+        and pr80["strong_preregistered_pass"] is True
+        and "superiority over every published algorithm" in decision["nonclaims"]
+    )
     findings.append(finding(
-        "J1", "CRITICAL", "PASS_WITH_BOUNDARY",
+        "J1", "CRITICAL", "PASS_WITH_BOUNDARY" if j_ok else "FAIL",
         "Large observed margins do not license claims about unqualified/unexecuted algorithms or all graph distributions.",
-        "PR80 survives its preregistered slice; PR81 explicitly forbids superiority-over-every-algorithm wording.",
+        "PR80 survives its preregistered slice; PR81 must continue to forbid superiority-over-every-algorithm wording.",
     ))
 
     invalidating = [f for f in findings if f["status"] in {"FAIL", "INVALIDATES_C_SOTA"}]
-    disposition = (
-        "FAIL_SCOPED_SOTA_PACKAGE" if invalidating
-        else "PASS_SCOPED_SOTA_PACKAGE_WITH_MANDATORY_BOUNDARIES"
-    )
+    disposition = "FAIL_SCOPED_SOTA_PACKAGE" if invalidating else "PASS_SCOPED_SOTA_PACKAGE_WITH_MANDATORY_BOUNDARIES"
     result = {
         "schema": "ades-pr83-adversarial-publication-audit-v1",
         "disposition": disposition,
@@ -177,6 +184,7 @@ def main() -> int:
         "critical_or_high_findings": [f for f in findings if f["severity"] in {"CRITICAL", "HIGH"}],
         "repair_recommended": [f for f in findings if f["status"] == "REPAIR_RECOMMENDED"],
         "open_boundaries": [f for f in findings if f["status"] == "OPEN_BOUNDARY"],
+        "invalidating_findings": invalidating,
         "findings": findings,
         "mandatory_manuscript_boundaries": [
             "Use 'scoped practical SOTA evidence' or equivalent, never universal/theoretical SOTA.",
@@ -195,7 +203,7 @@ def main() -> int:
     out = ROOT / "evidence" / "pr83_publication_audit.json"
     out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     print(json.dumps(result, indent=2, sort_keys=True))
-    return 0 if not invalidating else 1
+    return 1 if invalidating else 0
 
 
 if __name__ == "__main__":
