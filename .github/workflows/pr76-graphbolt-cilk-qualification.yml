@@ -1,0 +1,239 @@
+name: ADES PR76 GraphBolt historical Cilk qualification
+
+on:
+  push:
+    branches: [pr76-graphbolt-cilk-qualification]
+  pull_request:
+    paths:
+      - 'docs/PR76_GRAPHBOLT_CILK_QUALIFICATION.md'
+      - '.github/workflows/pr76-graphbolt-cilk-qualification.yml'
+      - 'tools/run_pr69_graphbolt_qualification.py'
+
+permissions:
+  contents: read
+
+env:
+  CILK_IMAGE: gcc@sha256:1938a2199146f37d7c5b697a66d4379b75e3cd6ca5e08380c6803ab25e0ba9a4
+  GRAPHBOLT_SHA: 7c2792cc77d59b9722288ded8c3c62f6a9a87fc7
+  MIMALLOC_SHA: 04f1c3b1e23677ce03bd16137e73089abd552175
+  PATCH_ID: kickstarter-missing-return-v1
+
+jobs:
+  qualify-cilk-graphbolt:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact PR76 head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Freeze Stage-B inputs
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/pr76/stage-b/provenance graphbolt-runtime legacy-runtime external
+          python3 -m py_compile tools/run_pr69_graphbolt_qualification.py
+          sha256sum \
+            docs/PR76_GRAPHBOLT_CILK_QUALIFICATION.md \
+            tools/run_pr69_graphbolt_qualification.py \
+            > evidence/pr76/stage-b/provenance/stage-b-input-sha256.txt
+          docker --version > evidence/pr76/stage-b/provenance/docker-version.txt
+
+      - name: Pull and verify immutable Stage-A Cilk image
+        run: |
+          set -euo pipefail
+          docker pull "$CILK_IMAGE"
+          digest=$(docker image inspect "$CILK_IMAGE" --format '{{index .RepoDigests 0}}')
+          test "$digest" = "$CILK_IMAGE"
+          echo "$digest" > evidence/pr76/stage-b/provenance/container-repodigest.txt
+          docker run --rm "$CILK_IMAGE" bash -lc 'cat /etc/os-release; g++ --version' \
+            > evidence/pr76/stage-b/provenance/container-toolchain.txt
+
+      - name: Fetch exact GraphBolt and mimalloc revisions
+        run: |
+          set -euo pipefail
+          git clone https://github.com/pdclab/graphbolt.git external/graphbolt
+          git -C external/graphbolt checkout --detach "$GRAPHBOLT_SHA"
+          test "$(git -C external/graphbolt rev-parse HEAD)" = "$GRAPHBOLT_SHA"
+          test -z "$(git -C external/graphbolt status --porcelain)"
+          git clone https://github.com/microsoft/mimalloc.git external/mimalloc
+          git -C external/mimalloc checkout --detach "$MIMALLOC_SHA"
+          test "$(git -C external/mimalloc rev-parse HEAD)" = "$MIMALLOC_SHA"
+          test -z "$(git -C external/mimalloc status --porcelain)"
+          sha256sum \
+            external/graphbolt/apps/SSSP.C \
+            external/graphbolt/apps/SSSP_edgeData.h \
+            external/graphbolt/core/graphBolt/KickStarterEngine.h \
+            external/graphbolt/core/graphBolt/ingestor.h \
+            external/graphbolt/core/common/parallel.h \
+            > evidence/pr76/stage-b/provenance/graphbolt-upstream-sha256.txt
+          sha256sum \
+            external/mimalloc/CMakeLists.txt \
+            external/mimalloc/src/static.c \
+            > evidence/pr76/stage-b/provenance/mimalloc-upstream-sha256.txt
+
+      - name: Apply only PR69-qualified GraphBolt portability repair
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('external/graphbolt/core/graphBolt/KickStarterEngine.h')
+          s = p.read_text()
+          signature = '  int traditionalIncrementalComputation() {\n    while (active_vertices_bitset.anyScheduledTasks()) {'
+          marker = '      }\n    }\n  }\n\n  void deltaCompute(edgeArray &edge_additions, edgeArray &edge_deletions) {'
+          replacement = '      }\n    }\n    return 0;  // ADES PR69 portability repair: caller ignores return value.\n  }\n\n  void deltaCompute(edgeArray &edge_additions, edgeArray &edge_deletions) {'
+          if s.count(signature) != 1:
+              raise SystemExit('unique no-arg traditionalIncrementalComputation signature not found')
+          start = s.index(signature)
+          head, tail = s[:start], s[start:]
+          if tail.count(marker) != 1:
+              raise SystemExit('unique function terminator not found')
+          p.write_text(head + tail.replace(marker, replacement, 1))
+          PY
+          git -C external/graphbolt diff --check
+          git -C external/graphbolt diff -- core/graphBolt/KickStarterEngine.h \
+            > evidence/pr76/stage-b/provenance/portability.patch
+          test "$(git -C external/graphbolt diff --numstat | awk '{print $1":"$2":"$3}')" \
+            = "1:0:core/graphBolt/KickStarterEngine.h"
+
+      - name: Build mimalloc 1.6.0 and GraphBolt with historical Cilk flags inside pinned container
+        run: |
+          set -euo pipefail
+          ROOT="$PWD"
+          docker run --rm \
+            -v "$ROOT:$ROOT" -w "$ROOT" \
+            "$CILK_IMAGE" bash -lc '
+              set -euo pipefail
+              # mimalloc 1.6.0 uses GNU inline asm (for example `asm volatile("pause")`).
+              # Build it as GNU C11 rather than strict ISO C11; this changes no source
+              # bytes and leaves the pinned allocator revision and GraphBolt matrix intact.
+              gcc -std=gnu11 -O3 -DNDEBUG -fPIC -fvisibility=hidden \
+                -ftls-model=initial-exec -DMI_SHARED_LIB -DMI_SHARED_LIB_EXPORT \
+                -Iexternal/mimalloc/include -Iexternal/mimalloc/src \
+                external/mimalloc/src/stats.c \
+                external/mimalloc/src/random.c \
+                external/mimalloc/src/os.c \
+                external/mimalloc/src/arena.c \
+                external/mimalloc/src/region.c \
+                external/mimalloc/src/segment.c \
+                external/mimalloc/src/page.c \
+                external/mimalloc/src/alloc.c \
+                external/mimalloc/src/alloc-aligned.c \
+                external/mimalloc/src/alloc-posix.c \
+                external/mimalloc/src/heap.c \
+                external/mimalloc/src/options.c \
+                external/mimalloc/src/init.c \
+                -shared -pthread -lrt -o legacy-runtime/libmimalloc.so
+              test -f legacy-runtime/libmimalloc.so
+              g++ -std=c++14 -fcilkplus -g -O3 -DCILK -DEDGELONG -DEDGEDATA \
+                -include cstdint external/graphbolt/apps/SSSP.C \
+                -Llegacy-runtime -lmimalloc -lcilkrts -pthread \
+                -Wl,-rpath,"'$ROOT'/legacy-runtime" \
+                -o graphbolt-runtime/graphbolt_sssp_cilk
+              test -x graphbolt-runtime/graphbolt_sssp_cilk
+              ldd graphbolt-runtime/graphbolt_sssp_cilk \
+                > evidence/pr76/stage-b/provenance/graphbolt-cilk-ldd.txt
+              g++ --version | head -1 \
+                > evidence/pr76/stage-b/provenance/cilk-compiler.txt
+            '
+          sha256sum legacy-runtime/libmimalloc.so \
+            > evidence/pr76/stage-b/provenance/mimalloc-library-sha256.txt
+          sha256sum graphbolt-runtime/graphbolt_sssp_cilk \
+            > evidence/pr76/stage-b/provenance/graphbolt-cilk-binary-sha256.txt
+
+      - name: Create digest-pinned Cilk execution wrapper
+        run: |
+          set -euo pipefail
+          cat > graphbolt-runtime/run_graphbolt_cilk.sh <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+          IMAGE='gcc@sha256:1938a2199146f37d7c5b697a66d4379b75e3cd6ca5e08380c6803ab25e0ba9a4'
+          exec docker run --rm \
+            -e CILK_NWORKERS="${CILK_NWORKERS:-4}" \
+            -e LD_PRELOAD="$ROOT/legacy-runtime/libmimalloc.so" \
+            -v "$ROOT:$ROOT" -w "$ROOT" \
+            "$IMAGE" \
+            "$ROOT/graphbolt-runtime/graphbolt_sssp_cilk" "$@"
+          SH
+          chmod +x graphbolt-runtime/run_graphbolt_cilk.sh
+          sha256sum graphbolt-runtime/run_graphbolt_cilk.sh \
+            > evidence/pr76/stage-b/provenance/cilk-wrapper-sha256.txt
+
+      - name: Execute unchanged PR69 semantic matrix under historical Cilk
+        id: qualify
+        env:
+          CILK_NWORKERS: '4'
+        run: |
+          set +e
+          mkdir -p evidence/pr76/stage-b/qualification
+          python3 tools/run_pr69_graphbolt_qualification.py \
+            --graphbolt "$PWD/graphbolt-runtime/run_graphbolt_cilk.sh" \
+            --out evidence/pr76/stage-b/qualification
+          rc=$?
+          echo "$rc" > evidence/pr76/stage-b/qualification-exit-code.txt
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Enforce canonical Cilk semantic qualification
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          q = json.loads(Path('evidence/pr76/stage-b/qualification/qualification.json').read_text())
+          assert q['graphbolt_commit'] == '7c2792cc77d59b9722288ded8c3c62f6a9a87fc7'
+          assert q['full_matrix_executed'] is True
+          assert q['all_exact'] is True
+          assert q['exact_case_count'] == 9
+          assert q['checks'] == 729
+          assert q['qualification'] == 'QUALIFIED_DIRECTED_FIXED_SOURCE_WEIGHTED_STREAMING_SSSP_WITH_UINT16_DISTANCE_BOUND'
+          result = {
+              'schema': 'ades-pr76-graphbolt-cilk-semantic-qualification-v1',
+              'container_repodigest': 'gcc@sha256:1938a2199146f37d7c5b697a66d4379b75e3cd6ca5e08380c6803ab25e0ba9a4',
+              'graphbolt_commit': q['graphbolt_commit'],
+              'mimalloc_commit': '04f1c3b1e23677ce03bd16137e73089abd552175',
+              'portability_patch_id': 'kickstarter-missing-return-v1',
+              'parallel_mode': 'historical Cilk Plus',
+              'cilk_workers': 4,
+              'exact_case_count': q['exact_case_count'],
+              'checks': q['checks'],
+              'all_exact': q['all_exact'],
+              'performance_executed': False,
+              'disposition': 'QUALIFIED_HISTORICAL_CILK_DIRECTED_FIXED_SOURCE_WEIGHTED_STREAMING_SSSP_WITH_UINT16_DISTANCE_BOUND',
+          }
+          Path('evidence/pr76/stage-b/summary.json').write_text(json.dumps(result, indent=2, sort_keys=True) + '\n')
+          print(json.dumps(result, indent=2, sort_keys=True))
+          PY
+
+      - name: Record Stage-B provenance
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "head_sha=${GITHUB_SHA}"
+            echo "stage=B-digest-pinned-cilk-semantic-qualification"
+            echo "container_repodigest=${CILK_IMAGE}"
+            echo "stage_a_head=a9725e679c876de25767b820de5e8da7a5571459"
+            echo "stage_a_run=38843716006"
+            echo "stage_a_job=116789353550"
+            echo "stage_a_artifact=12021922178"
+            echo "stage_a_artifact_digest=sha256:8222e6491790ff4314468a4ef0c7c08c896b1a080d5ba39be8ae7aed6a178c32"
+            echo "graphbolt_sha=${GRAPHBOLT_SHA}"
+            echo "mimalloc_sha=${MIMALLOC_SHA}"
+            echo "portability_patch_id=${PATCH_ID}"
+            echo "parallel_mode=CILK"
+            echo "cilk_workers=4"
+            echo "mimalloc_language_mode=gnu11; strict-c11 preflight failed before GraphBolt compilation because mimalloc v1.6.0 uses GNU inline asm"
+            echo "qualification_exit_code=${{ steps.qualify.outputs.exit_code }}"
+            echo "performance_executed=false"
+            uname -a
+          } > evidence/pr76/stage-b/provenance/environment.txt
+
+      - name: Upload PR76 Stage-B evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr76-graphbolt-cilk-qualification-${{ github.event.pull_request.head.sha || github.sha }}
+          path: evidence/pr76/stage-b
+          if-no-files-found: error
+          retention-days: 90
