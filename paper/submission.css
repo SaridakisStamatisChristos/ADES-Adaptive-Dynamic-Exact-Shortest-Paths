@@ -1,0 +1,108 @@
+@page {
+  size: Letter;
+  margin: 0.78in 0.82in 0.82in 0.82in;
+}
+
+html {
+  font-size: 10.5pt;
+}
+
+body {
+  font-family: Georgia, "Times New Roman", serif;
+  line-height: 1.38;
+  max-width: none;
+  margin: 0;
+  color: #111;
+  hyphens: auto;
+}
+
+h1, h2, h3, h4 {
+  font-family: Arial, Helvetica, sans-serif;
+  line-height: 1.16;
+  page-break-after: avoid;
+}
+
+h1 {
+  font-size: 17pt;
+  margin-top: 1.25em;
+  margin-bottom: 0.5em;
+}
+
+h2 {
+  font-size: 13pt;
+  margin-top: 1.05em;
+  margin-bottom: 0.4em;
+}
+
+h3 {
+  font-size: 11.5pt;
+}
+
+p, li {
+  orphans: 3;
+  widows: 3;
+}
+
+blockquote {
+  margin: 0.7em 1.2em;
+  padding-left: 0.8em;
+  border-left: 2px solid #777;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 8.4pt;
+  margin: 0.8em 0 1.0em 0;
+  page-break-inside: avoid;
+}
+
+th, td {
+  border: 0.6px solid #888;
+  padding: 0.26em 0.36em;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+th {
+  font-family: Arial, Helvetica, sans-serif;
+  font-weight: 600;
+}
+
+code {
+  font-family: "DejaVu Sans Mono", "Liberation Mono", monospace;
+  font-size: 0.86em;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 0.6px solid #aaa;
+  padding: 0.6em;
+  font-size: 8.5pt;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.references, #refs {
+  font-size: 9pt;
+}
+
+.references div, #refs div {
+  break-inside: avoid;
+}
+
+img, figure {
+  max-width: 100%;
+  page-break-inside: avoid;
+}
+
+hr {
+  border: 0;
+  border-top: 0.6px solid #999;
+}
