@@ -1,0 +1,223 @@
+name: ADES PR74 GraphBolt Gnutella08 performance holdout
+
+on:
+  push:
+    branches: [pr74-graphbolt-gnutella08-performance]
+  pull_request:
+    paths:
+      - 'docs/PR74_GRAPHBOLT_GNUTELLA08_PERFORMANCE_CONTRACT.md'
+      - 'tools/run_pr74_gnutella08_performance.py'
+      - 'tools/run_pr70_graphbolt_performance.py'
+      - 'tools/pr70_ades_fixed_source.cpp'
+      - 'CMakeLists.txt'
+      - '.github/workflows/pr74-graphbolt-gnutella08-performance.yml'
+
+permissions:
+  contents: read
+
+env:
+  GRAPHBOLT_SHA: 7c2792cc77d59b9722288ded8c3c62f6a9a87fc7
+  MIMALLOC_SHA: 04f1c3b1e23677ce03bd16137e73089abd552175
+  PATCH_ID: kickstarter-missing-return-v1
+  PR73_GZIP_SHA256: cb3019062be21e55b03f19a73e88edf34693bafb68ae581621cc7a037fa604a9
+  PR73_CANONICAL_SHA256: 4554021f32967c69b68ccf59f9d85b83b66a6c0413b721112a10741858fdf845
+
+jobs:
+  external-topology-holdout:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact PR74 head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Freeze PR74 contract and harness identities
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/pr74/provenance evidence/pr74/source
+          python3 -m py_compile \
+            tools/run_pr70_graphbolt_performance.py \
+            tools/run_pr74_gnutella08_performance.py
+          sha256sum \
+            docs/PR74_GRAPHBOLT_GNUTELLA08_PERFORMANCE_CONTRACT.md \
+            tools/run_pr74_gnutella08_performance.py \
+            tools/run_pr70_graphbolt_performance.py \
+            tools/pr70_ades_fixed_source.cpp \
+            > evidence/pr74/provenance/pr74-input-sha256.txt
+
+      - name: Fetch and verify frozen PR73 topology bytes
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error \
+            --retry 3 --retry-all-errors \
+            --output evidence/pr74/source/p2p-Gnutella08.txt.gz \
+            https://snap.stanford.edu/data/p2p-Gnutella08.txt.gz
+          actual=$(sha256sum evidence/pr74/source/p2p-Gnutella08.txt.gz | awk '{print $1}')
+          test "$actual" = "$PR73_GZIP_SHA256"
+          echo "$actual  p2p-Gnutella08.txt.gz" > evidence/pr74/provenance/topology-gzip-sha256.txt
+
+      - name: Build and test unchanged ADES PR70 fixed-source runner
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+          test -x build/ades_pr70_fixed_source
+          sha256sum build/ades_pr70_fixed_source > evidence/pr74/provenance/ades-runner-sha256.txt
+
+      - name: Fetch exact upstream GraphBolt DZiG revision
+        run: |
+          set -euo pipefail
+          git clone https://github.com/pdclab/graphbolt.git external/graphbolt
+          git -C external/graphbolt checkout --detach "$GRAPHBOLT_SHA"
+          test "$(git -C external/graphbolt rev-parse HEAD)" = "$GRAPHBOLT_SHA"
+          test -z "$(git -C external/graphbolt status --porcelain)"
+          sha256sum \
+            external/graphbolt/apps/SSSP.C \
+            external/graphbolt/apps/SSSP_edgeData.h \
+            external/graphbolt/core/graphBolt/KickStarterEngine.h \
+            external/graphbolt/core/graphBolt/ingestor.h \
+            external/graphbolt/core/common/parallel.h \
+            > evidence/pr74/provenance/graphbolt-upstream-sha256.txt
+
+      - name: Build pinned upstream-required mimalloc v1.6.0
+        run: |
+          set -euo pipefail
+          git clone https://github.com/microsoft/mimalloc.git external/mimalloc
+          git -C external/mimalloc checkout --detach "$MIMALLOC_SHA"
+          test "$(git -C external/mimalloc rev-parse HEAD)" = "$MIMALLOC_SHA"
+          test -z "$(git -C external/mimalloc status --porcelain)"
+          cmake -S external/mimalloc -B external/mimalloc/out/release \
+            -DCMAKE_BUILD_TYPE=Release -DMI_BUILD_TESTS=OFF
+          cmake --build external/mimalloc/out/release --parallel 2
+          test -f external/mimalloc/out/release/libmimalloc.so
+          sha256sum external/mimalloc/out/release/libmimalloc.so \
+            > evidence/pr74/provenance/mimalloc-library-sha256.txt
+
+      - name: Apply only PR69-qualified GraphBolt portability repair
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('external/graphbolt/core/graphBolt/KickStarterEngine.h')
+          s = p.read_text()
+          signature = '  int traditionalIncrementalComputation() {\n    while (active_vertices_bitset.anyScheduledTasks()) {'
+          marker = '      }\n    }\n  }\n\n  void deltaCompute(edgeArray &edge_additions, edgeArray &edge_deletions) {'
+          replacement = '      }\n    }\n    return 0;  // ADES PR69 portability repair: caller ignores return value.\n  }\n\n  void deltaCompute(edgeArray &edge_additions, edgeArray &edge_deletions) {'
+          if s.count(signature) != 1:
+              raise SystemExit('unique no-arg traditionalIncrementalComputation signature not found')
+          start = s.index(signature)
+          head, tail = s[:start], s[start:]
+          if tail.count(marker) != 1:
+              raise SystemExit('unique function terminator not found')
+          p.write_text(head + tail.replace(marker, replacement, 1))
+          PY
+          git -C external/graphbolt diff --check
+          git -C external/graphbolt diff -- core/graphBolt/KickStarterEngine.h \
+            | tee evidence/pr74/provenance/portability.patch
+          test "$(git -C external/graphbolt diff --numstat | awk '{print $1":"$2":"$3}')" \
+            = "1:0:core/graphBolt/KickStarterEngine.h"
+
+      - name: Build PR69-qualified GraphBolt performance binary
+        run: |
+          set -euo pipefail
+          mkdir -p graphbolt-runtime
+          g++ -std=c++14 -O3 -g -DOPENMP -fopenmp -DEDGELONG -DEDGEDATA \
+            -include cstdint external/graphbolt/apps/SSSP.C -pthread \
+            -o graphbolt-runtime/graphbolt_sssp_patched
+          test -x graphbolt-runtime/graphbolt_sssp_patched
+          sha256sum graphbolt-runtime/graphbolt_sssp_patched \
+            > evidence/pr74/provenance/graphbolt-binary-sha256.txt
+          ldd graphbolt-runtime/graphbolt_sssp_patched > evidence/pr74/provenance/graphbolt-ldd.txt
+          g++ --version | head -1 > evidence/pr74/provenance/graphbolt-compiler.txt
+
+      - name: Execute frozen correctness gate and Gnutella08 holdout
+        id: experiment
+        run: |
+          set +e
+          python3 tools/run_pr74_gnutella08_performance.py \
+            --graphbolt "$PWD/graphbolt-runtime/graphbolt_sssp_patched" \
+            --ades "$PWD/build/ades_pr70_fixed_source" \
+            --mimalloc "$PWD/external/mimalloc/out/release/libmimalloc.so" \
+            --topology-gz "$PWD/evidence/pr74/source/p2p-Gnutella08.txt.gz" \
+            --out evidence/pr74
+          rc=$?
+          echo "$rc" > evidence/pr74/experiment-exit-code.txt
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Record R7 provenance
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/pr74/provenance
+          {
+            echo "head_sha=${GITHUB_SHA}"
+            echo "branch=pr74-graphbolt-gnutella08-performance"
+            echo "contract_status=preregistered-before-comparative-timings"
+            echo "topology=SNAP p2p-Gnutella08; real directed P2P topology; deterministic synthetic positive weights"
+            echo "topology_gzip_sha256=${PR73_GZIP_SHA256}"
+            echo "topology_canonical_sha256=${PR73_CANONICAL_SHA256}"
+            echo "pr73_canonical_head=fa6637b57bef6c8b56aaf1f9ac65bd7fc7a26645"
+            echo "pr73_canonical_run=38842725427"
+            echo "pr73_canonical_artifact=12021871969"
+            echo "pr73_canonical_artifact_digest=sha256:37f2e717cd66a6d8356bcc758463346269fd073e648ffcbadd19e6f3d45e3c49"
+            echo "graphbolt_sha=${GRAPHBOLT_SHA}"
+            echo "mimalloc_sha=${MIMALLOC_SHA}"
+            echo "portability_patch_id=${PATCH_ID}"
+            echo "graphbolt_threads=4"
+            echo "scenario_sources=617,2079,3676,5306"
+            echo "scenario_weight_seeds=7401,7407,7411,7417"
+            echo "preflight_max_finite_distances=217,208,212,247"
+            echo "scenario_interpretation=within-one-topology robustness conditions, not independent topology replications"
+            echo "experiment_exit_code=${{ steps.experiment.outputs.exit_code }}"
+            python3 --version
+            g++ --version | head -1
+            cmake --version | head -1
+            uname -a
+          } > evidence/pr74/provenance/environment.txt
+
+      - name: Enforce completion rather than preferred outcome
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('evidence/pr74/summary.json')
+          if not p.exists():
+              raise SystemExit('PR74 did not produce summary.json')
+          d = json.loads(p.read_text())
+          allowed = {
+              'SUPPORTS_ADES_FIXED_SOURCE_SUPERIORITY_ON_PR74_GNUTELLA08_SLICE',
+              'FALSIFIES_PREFERRED_PR74_GNUTELLA08_HYPOTHESIS_ON_TESTED_SLICE',
+              'REJECTED_CORRECTNESS_TOPOLOGY_OR_DISTANCE_BOUND',
+          }
+          if d.get('disposition') not in allowed:
+              raise SystemExit(f"unexpected PR74 disposition: {d.get('disposition')!r}")
+          if d['disposition'] == 'REJECTED_CORRECTNESS_TOPOLOGY_OR_DISTANCE_BOUND':
+              raise SystemExit('semantic/topology/distance gate failed; performance evidence not admitted')
+          assert d['schema'] == 'ades-pr74-graphbolt-gnutella08-performance-v1'
+          assert d['correctness_all_exact'] is True
+          assert d['scenario_count'] == 4
+          assert d['measured_pairs'] == 8
+          assert d['graphbolt_threads'] == 4
+          assert d['topology']['raw_gzip_sha256'] == 'cb3019062be21e55b03f19a73e88edf34693bafb68ae581621cc7a037fa604a9'
+          assert d['topology']['canonical_sha256'] == '4554021f32967c69b68ccf59f9d85b83b66a6c0413b721112a10741858fdf845'
+          assert d['topology']['largest_scc']['sources'] == [617, 2079, 3676, 5306]
+          assert [x['source'] for x in d['scenario_level']] == [617, 2079, 3676, 5306]
+          print('PR74 experiment completed without outcome-based gating')
+          print(json.dumps({
+              'disposition': d['disposition'], 'maintenance': d['maintenance'],
+              'total': d['total'], 'scenario_level': d['scenario_level'],
+              'bootstrap_interpretation': d['bootstrap_interpretation'],
+          }, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload PR74 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr74-graphbolt-gnutella08-${{ github.event.pull_request.head.sha || github.sha }}
+          path: evidence/pr74
+          if-no-files-found: warn
+          retention-days: 90
