@@ -1,0 +1,109 @@
+{
+  "schema": "ades-pr81-scoped-sota-decision-v1",
+  "publication_contract_version": "1.0",
+  "claim_ids": ["C1", "C2", "C3", "C4", "C-SOTA"],
+  "decision": "GO_SCOPED_PRACTICAL_SOTA",
+  "headline_claim_status": "SUPPORTED_WITHIN_FROZEN_SCOPE",
+  "frozen_ades_candidate": "cf7cbc3ed7d9d37ad673a540485a1eee781d47fe",
+  "direct_comparator_evidence": [
+    {
+      "id": "boost-graph-dijkstra-recompute",
+      "class": "DIRECT",
+      "role": "exact arbitrary-source cold recomputation baseline",
+      "implementation_commit": "fc5dac2c552f945846449fd123a9b8335d5c063a",
+      "evidence": [
+        {"campaign": "PR61", "scope": "matched NY head-to-head"},
+        {"campaign": "PR62", "scope": "fresh 24-cell holdout", "total_geomean_ratio": 5.112681, "query_geomean_ratio": 5.059393, "total_loss_cells": 0, "query_loss_cells": 0}
+      ]
+    },
+    {
+      "id": "velographx-weighted-sssp-adapter",
+      "class": "DIRECT_PENDING_REGISTRY_RECONCILIATION",
+      "role": "pinned dynamic-maintenance comparator with transparent byte-bounded arbitrary-source adapter",
+      "upstream_commit": "2aa84ce81a180487239c661b65639e5100136075",
+      "adapter_blob": "b09a9f51b2b0300dce2801d0a8afaa49440d45a6",
+      "pair_driver_blob": "44019d478377282b5056a6b07d86d76757f7efc0",
+      "logical_state_budget_bytes": 67108864,
+      "evidence": [
+        {
+          "campaign": "PR66",
+          "scope": "fresh NY-road source-reuse holdout",
+          "workflow_run": 38730045262,
+          "job": 116405296228,
+          "artifact": 11971060916,
+          "exact_cells": 24,
+          "total_geomean_ratio": 15.561191,
+          "query_geomean_ratio": 3.897866,
+          "total_loss_cells": 0,
+          "query_loss_cells": 0
+        },
+        {
+          "campaign": "PR80",
+          "scope": "fresh non-road arbitrary-source/source-reuse cross-product holdout",
+          "head": "d7ff1eea51db6c07b312af393c315d6c84bcd661",
+          "workflow_run": 38856829047,
+          "job": 116830072333,
+          "artifact": 12027088809,
+          "artifact_digest": "sha256:617bb4c9c847b8c236dea95caf39119569d66422038be32f5498502298eef100",
+          "exact_cells": 24,
+          "total_geomean_ratio": 157.67741734463613,
+          "total_ci95": [95.32915394070555, 260.8034049682089],
+          "query_geomean_ratio": 30.199378953227633,
+          "query_ci95": [16.218261047504807, 56.23306262547552],
+          "minimum_total_cell_ratio": 30.15308002929671,
+          "minimum_query_cell_ratio": 6.79739015663136,
+          "total_loss_cells": 0,
+          "query_loss_cells": 0,
+          "family_lower_bound_rule_pass": true,
+          "graph_lower_bound_rule_pass": true,
+          "strong_preregistered_pass": true,
+          "velographx_peak_accounted_state_bytes": 65507832,
+          "ades_peak_accounted_state_bytes": 1802576,
+          "velographx_cache_hits": 996,
+          "velographx_cache_misses": 444,
+          "velographx_cache_evictions": 204
+        }
+      ]
+    }
+  ],
+  "contextual_evidence": [
+    {
+      "id": "networkit-11.2.2-nonroad",
+      "reason_not_direct_for_full_c_sota": "qualified evidence is restricted to tested undirected/symmetric scope while frozen C-SOTA domain is directed",
+      "campaign": "PR68",
+      "exact_cells": 24,
+      "total_geomean_ratio": 6.2304854571,
+      "query_geomean_ratio": 6.0921211434,
+      "total_loss_cells": 0,
+      "query_loss_cells": 0
+    },
+    {
+      "id": "graphbolt-historical-cilk-fixed-source",
+      "reason_not_direct_for_full_c_sota": "tested historical comparator scope is fixed-source and bounded-distance rather than the complete arbitrary-source frozen publication contract",
+      "evidence": [
+        {"campaign": "PR78", "topology": "SNAP email-Eu-core", "workflow_run": 38855443465, "artifact": 12027485073, "maintenance_geomean_ratio": 389.7479595838792, "total_geomean_ratio": 31.455808022699205},
+        {"campaign": "PR79", "topology": "SNAP p2p-Gnutella08", "workflow_run": 38855853200, "artifact": 12027381258, "maintenance_geomean_ratio_approx": 63.73, "total_geomean_ratio_approx": 22.71}
+      ]
+    }
+  ],
+  "claim_classification": {
+    "C1": "SUPPORTED",
+    "C2": "SUPPORTED",
+    "C3": "SUPPORTED",
+    "C4": "SUPPORTED_IN_DEFINED_REGIMES",
+    "C-SOTA": "SUPPORTED_WITHIN_FROZEN_SCOPE"
+  },
+  "nonclaims": [
+    "universal dynamic-shortest-path SOTA",
+    "theoretical or asymptotic SOTA",
+    "superiority over every published algorithm",
+    "population-level dominance over arbitrary graph/workload distributions",
+    "equal process RSS",
+    "native arbitrary-source semantics for fixed-source upstream comparators without the documented adapter"
+  ],
+  "next_evidence_actions": [
+    "reconcile VeloGraphX into the machine-readable comparator registry without changing the frozen hard gates",
+    "perform adversarial manuscript-level claim and reproducibility audit",
+    "prefer orthogonal independent topology/comparator evidence over additional favorable-cell accumulation"
+  ]
+}
