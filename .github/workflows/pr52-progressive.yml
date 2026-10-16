@@ -1,0 +1,76 @@
+name: ADES PR52 progressive frontier gate
+
+on:
+  pull_request:
+    paths:
+      - 'include/ades/progressive_*.hpp'
+      - 'src/progressive_*.cpp'
+      - 'tests/progressive_frontier.cpp'
+      - 'benchmarks/pr52_profile.cpp'
+      - 'tools/run_pr52_progressive.py'
+      - 'docs/PROGRESSIVE_FRONTIER_PR52.md'
+      - 'CMakeLists.txt'
+      - '.github/workflows/pr52-progressive.yml'
+  push:
+    branches: ['pr52-progressive-frontier-residency']
+  workflow_dispatch:
+    inputs:
+      full:
+        description: 'Run frozen regression + holdout3 matrix'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Validate PR52 Python
+        run: python3 -m py_compile tools/run_pr52_progressive.py
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2 --target ades_progressive_frontier_tests ades_workload_v2 ades_pr52_profile
+      - name: Progressive unit/differential tests
+        run: ./build/ades_progressive_frontier_tests
+      - name: PR52 isolated smoke
+        run: python3 tools/run_pr52_progressive.py --repo . --build build --output results/pr52-smoke --smoke --queries 16
+      - name: Verify smoke decision exists
+        run: test -s results/pr52-smoke/decision.json
+
+  full:
+    if: >-
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[pr52-full]')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.full == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Validate PR52 Python
+        run: python3 -m py_compile tools/run_pr52_progressive.py
+      - name: Build frozen runner
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2 --target ades_workload_v2 ades_pr52_profile ades_progressive_frontier_tests
+      - name: Structural V4 test
+        run: ./build/ades_progressive_frontier_tests
+      - name: Frozen regression + holdout3
+        run: python3 tools/run_pr52_progressive.py --repo . --build build --output results/pr52-progressive --queries 160 --phase both
+      - name: Package evidence
+        run: |
+          tar -czf results/ades-pr52-progressive-${GITHUB_SHA}.tgz -C results pr52-progressive
+          sha256sum results/ades-pr52-progressive-${GITHUB_SHA}.tgz > results/ades-pr52-progressive-${GITHUB_SHA}.tgz.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr52-progressive-${{ github.sha }}
+          path: |
+            results/pr52-progressive/
+            results/ades-pr52-progressive-${{ github.sha }}.tgz
+            results/ades-pr52-progressive-${{ github.sha }}.tgz.sha256
+          retention-days: 90
