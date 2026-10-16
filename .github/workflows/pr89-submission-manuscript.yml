@@ -155,7 +155,7 @@ jobs:
           assert '24/24' in text
           assert 'zero total/query loss cells' in low or ('total-time loss cells | `0`' in low and 'query-time loss cells | `0`' in low)
           assert 'locality_percent=0' in text
-          assert 'does not establish source-policy breadth' in low
+          assert 'does not establish source-policy breadth' in plain
           assert 'adapter-mediated' in low
           assert 'upstream behavior is fixed-source' in low
           assert 'common cap' in low or 'common maximum allowance' in low
