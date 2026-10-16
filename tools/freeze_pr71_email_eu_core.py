@@ -4,6 +4,12 @@
 No ADES or comparator execution occurs here. The script validates the external
 real directed topology against preregistered SNAP structural invariants and
 emits a canonical sorted edge list plus cryptographic hashes.
+
+The first PR71 discovery run falsified an initial parser assumption that self
+loops were invalid: the published SNAP artifact contains 642 unique self-loops,
+and SNAP's published edge/component counts include them. The canonical freeze
+therefore preserves and counts those loops exactly; this is a source-fidelity
+repair, not a performance-driven topology transformation.
 """
 from __future__ import annotations
 
@@ -17,6 +23,7 @@ import shutil
 SOURCE_URL = "https://snap.stanford.edu/data/email-Eu-core.txt.gz"
 EXPECTED_NODES = 1005
 EXPECTED_EDGES = 25571
+EXPECTED_SELF_LOOPS = 642
 EXPECTED_WCC_NODES = 986
 EXPECTED_WCC_EDGES = 25552
 EXPECTED_SCC_NODES = 803
@@ -52,8 +59,6 @@ def parse_edges(path: Path) -> list[tuple[int, int]]:
                 raise ValueError(f"non-integer data row at line {lineno}: {raw!r}") from exc
             if u < 0 or v < 0:
                 raise ValueError(f"negative node id at line {lineno}")
-            if u == v:
-                raise ValueError(f"self-loop at line {lineno}: {(u, v)}")
             e = (u, v)
             if e in seen:
                 raise ValueError(f"duplicate directed edge at line {lineno}: {e}")
@@ -150,11 +155,13 @@ def main() -> int:
     gzip_sha = sha256_file(raw_copy)
     edges = parse_edges(raw_copy)
     vertices = {x for e in edges for x in e}
+    self_loops = sum(1 for u, v in edges if u == v)
 
     failures: list[str] = []
     checks = {
         "unique_nodes": len(vertices),
         "directed_edges": len(edges),
+        "self_loops": self_loops,
         "min_node_id": min(vertices) if vertices else None,
         "max_node_id": max(vertices) if vertices else None,
     }
@@ -162,6 +169,8 @@ def main() -> int:
         failures.append(f"unique_nodes={len(vertices)} expected={EXPECTED_NODES}")
     if len(edges) != EXPECTED_EDGES:
         failures.append(f"directed_edges={len(edges)} expected={EXPECTED_EDGES}")
+    if self_loops != EXPECTED_SELF_LOOPS:
+        failures.append(f"self_loops={self_loops} expected={EXPECTED_SELF_LOOPS}")
     if not vertices or min(vertices) != EXPECTED_MIN_ID or max(vertices) != EXPECTED_MAX_ID:
         failures.append("vertex id range mismatch")
     if vertices != set(range(EXPECTED_NODES)):
@@ -208,7 +217,8 @@ def main() -> int:
         failures.append("canonical edge-list SHA-256 does not match frozen expected hash")
 
     result = {
-        "schema": "ades-pr71-email-eu-core-topology-freeze-v1",
+        "schema": "ades-pr71-email-eu-core-topology-freeze-v2",
+        "graph_transform_applied": False,
         "source_name": "SNAP email-Eu-core",
         "source_url": SOURCE_URL,
         "source_semantics": "directed email communication topology; unweighted source artifact",
@@ -218,13 +228,15 @@ def main() -> int:
             "comment_prefixes": ["#", "%"],
             "data_columns": 2,
             "direction_preserved": True,
-            "self_loops_allowed": False,
+            "self_loops_allowed": True,
+            "self_loops_preserved": True,
             "duplicate_directed_edges_allowed": False,
-            "canonical_order": "lexicographic (u,v)",
+            "canonical_order": "lexicographic (u,v), including self-loops",
         },
         "expected": {
             "unique_nodes": EXPECTED_NODES,
             "directed_edges": EXPECTED_EDGES,
+            "self_loops_post_discovery_frozen": EXPECTED_SELF_LOOPS,
             "min_node_id": EXPECTED_MIN_ID,
             "max_node_id": EXPECTED_MAX_ID,
             "largest_wcc_nodes": EXPECTED_WCC_NODES,
@@ -240,7 +252,9 @@ def main() -> int:
         "disposition": PASS if not failures else FAIL,
         "claim_boundary": "external directed topology identity/provenance only; no performance or native weight claim",
     }
-    (out / "manifest.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (out / "manifest.json").write_text(
+        json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if not failures else 1
 
