@@ -143,16 +143,44 @@ def main() -> int:
         "README and PR81 nonclaims must retain novelty/asymptotic separation.",
     ))
 
-    # H — public README is conservative but stale relative to PR62/66/80.
+    # H — README drift can be either still open or explicitly closed by PR84.
     stale_phrase = (
         "publication-grade evidence should rerun the complete matrix on one fixed commit "
         "across multiple independent workload seeds and longer traces"
     )
-    h_ok = stale_phrase in readme
+    readme_lower = readme.lower()
+    h_stale = stale_phrase in readme
+    h_repaired = (
+        not h_stale
+        and "subsequent publication-oriented campaigns re-earned the central evidence" in readme_lower
+        and "pr62" in readme_lower
+        and "pr66" in readme_lower
+        and "pr80" in readme_lower
+        and "scoped practical sota evidence" in readme_lower
+        and "novelty" in readme_lower
+        and "not established" in readme_lower
+        and "adapter-mediated" in readme_lower
+        and "slice-level robustness" in readme_lower
+    )
+    if h_stale:
+        h_status = "REPAIR_RECOMMENDED"
+        h_evidence = (
+            "The stale sentence is conservative rather than falsely favorable, so it is a documentation-drift repair rather than an invalidation of PR81."
+        )
+    elif h_repaired:
+        h_status = "CLOSED_BY_PR84"
+        h_evidence = (
+            "PR84 removed the obsolete rerun request and replaced it with bounded evidence status while retaining novelty, adapter, memory, and statistical caveats."
+        )
+    else:
+        h_status = "FAIL"
+        h_evidence = (
+            "The old caveat is absent but the repaired README does not preserve the evidence and claim-boundary markers required to close H1 safely."
+        )
     findings.append(finding(
-        "H1", "MEDIUM", "REPAIR_RECOMMENDED" if h_ok else "FAIL",
-        "The README evidence-status section predates the completed fresh fixed-candidate multi-seed holdouts and should be updated before public manuscript/release positioning.",
-        "The stale sentence is conservative rather than falsely favorable, so it is a documentation-drift repair rather than an invalidation of PR81.",
+        "H1", "MEDIUM", h_status,
+        "The README evidence-status section must reflect completed fresh fixed-candidate multi-seed holdouts without weakening the scoped claim boundary.",
+        h_evidence,
     ))
 
     # I — preserve PR81 as a historical snapshot after PR82 closes its registry action.
@@ -199,7 +227,7 @@ def main() -> int:
             "Do not infer algorithmic novelty or asymptotic improvement from empirical SOTA evidence.",
         ],
         "next_actions": [
-            "Update public-facing README evidence status without deleting historical caveats.",
+            "Update public-facing README evidence status without deleting historical caveats." if h_status == "REPAIR_RECOMMENDED" else "Keep the PR84 public evidence boundary stable and audited.",
             "Run a separate prior-art/novelty audit if the manuscript will make mechanism-novelty claims.",
             "Prefer a new orthogonal DIRECT comparator or real directed arbitrary-source topology over accumulating more favorable cells.",
         ],
