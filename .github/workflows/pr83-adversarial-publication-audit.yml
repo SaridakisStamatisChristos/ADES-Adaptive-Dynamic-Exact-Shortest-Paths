@@ -15,6 +15,8 @@ on:
       - 'README.md'
       - 'tools/validate_comparator_registry.py'
       - '.github/workflows/pr83-adversarial-publication-audit.yml'
+      - 'docs/PR84_PUBLIC_EVIDENCE_STATUS_REPAIR.md'
+      - '.github/workflows/pr84-public-evidence-status-repair.yml'
 
 permissions:
   contents: read
@@ -23,7 +25,7 @@ jobs:
   adversarial-audit:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout exact PR83 head
+      - name: Checkout exact audited head
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -73,17 +75,19 @@ jobs:
             'velographx-weighted-sssp-adapter',
           }
           assert len(d['mandatory_manuscript_boundaries']) >= 6
-          assert any(x['id']=='H1' and x['status']=='REPAIR_RECOMMENDED' for x in d['findings'])
+          h1=[x for x in d['findings'] if x['id']=='H1']
+          assert len(h1)==1
+          assert h1[0]['status'] in {'REPAIR_RECOMMENDED','CLOSED_BY_PR84'}
           assert any(x['id']=='G1' and x['status']=='OPEN_BOUNDARY' for x in d['findings'])
           rc=int(open('evidence/pr83/audit-exit-code.txt').read().strip())
           if d['disposition'].startswith('PASS_'):
               assert rc==0
           else:
               assert rc!=0
-          print('PR83 VALID COMPLETED AUDIT:', d['disposition'])
+          print('PR83 VALID COMPLETED AUDIT:', d['disposition'], 'H1=', h1[0]['status'])
           PY
 
-      - name: Prove no performance-code change
+      - name: Prove audit/publication-only change surface
         run: |
           set -euo pipefail
           base="${{ github.event.pull_request.base.sha || '2765eddaeb5cb8ad61a4ffb6f2f7c8ed8c13d5a5' }}"
@@ -92,14 +96,17 @@ jobs:
           from pathlib import Path
           changed=set(Path('evidence/pr83/changed-files.txt').read_text().splitlines())
           allowed={
+            'README.md',
             'tools/audit_pr83_publication_package.py',
             'docs/PR83_ADVERSARIAL_PUBLICATION_AUDIT.md',
+            'docs/PR84_PUBLIC_EVIDENCE_STATUS_REPAIR.md',
             '.github/workflows/pr83-adversarial-publication-audit.yml',
+            '.github/workflows/pr84-public-evidence-status-repair.yml',
           }
           extra=changed-allowed
           if extra:
-              raise SystemExit(f'PR83 modified evidence/performance surfaces unexpectedly: {sorted(extra)}')
-          print('PR83 AUDIT-ONLY DIFF PASS')
+              raise SystemExit(f'adversarial audit/publication repair modified unexpected surfaces: {sorted(extra)}')
+          print('PR83/84 AUDIT-PUBLICATION-ONLY DIFF PASS')
           PY
 
       - name: Record provenance
