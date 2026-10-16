@@ -1,0 +1,255 @@
+name: ADES PR80 VeloGraphX non-road arbitrary-source holdout
+
+on:
+  push:
+    branches: [pr80-velographx-nonroad-holdout]
+  pull_request:
+    paths:
+      - 'docs/PR80_VELOGRAPHX_NONROAD_HOLDOUT_CONTRACT.md'
+      - 'tools/generate_pr80_velographx_nonroad_holdout.py'
+      - 'tools/run_pr80_velographx_nonroad_holdout.py'
+      - 'tools/run_pr65_velographx_head_to_head.py'
+      - 'tools/oracle_from_trace.cpp'
+      - 'benchmarks/velographx_direct.cpp'
+      - '.github/workflows/pr80-velographx-nonroad-holdout.yml'
+
+permissions:
+  contents: read
+
+env:
+  FROZEN_ADES_SHA: cf7cbc3ed7d9d37ad673a540485a1eee781d47fe
+  VELOGRAPHX_SHA: 2aa84ce81a180487239c661b65639e5100136075
+  BOOST_SHA256: 5c1d40cb8e19adbf740a4ec2da35b3e58f3f5804b1dce44deb53df72193cbc6c
+  VELO_ADAPTER_BLOB: b09a9f51b2b0300dce2801d0a8afaa49440d45a6
+  PAIR_DRIVER_BLOB: 44019d478377282b5056a6b07d86d76757f7efc0
+  STATE_BUDGET_BYTES: '67108864'
+
+jobs:
+  nonroad-cross-product-holdout:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact PR80 harness
+        uses: actions/checkout@v4
+        with:
+          path: harness
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Checkout frozen ADES candidate
+        uses: actions/checkout@v4
+        with:
+          path: candidate
+          ref: ${{ env.FROZEN_ADES_SHA }}
+
+      - name: Verify frozen identities before generation or timing
+        env:
+          HARNESS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/pr80/provenance
+          test "$(git -C harness rev-parse HEAD)" = "$HARNESS_SHA"
+          test "$(git -C candidate rev-parse HEAD)" = "$FROZEN_ADES_SHA"
+          test "$(git -C harness hash-object benchmarks/velographx_direct.cpp)" = "$VELO_ADAPTER_BLOB"
+          test "$(git -C harness hash-object tools/run_pr65_velographx_head_to_head.py)" = "$PAIR_DRIVER_BLOB"
+          python3 -m py_compile \
+            harness/tools/generate_pr80_velographx_nonroad_holdout.py \
+            harness/tools/run_pr80_velographx_nonroad_holdout.py \
+            harness/tools/run_pr65_velographx_head_to_head.py
+          sha256sum \
+            harness/docs/PR80_VELOGRAPHX_NONROAD_HOLDOUT_CONTRACT.md \
+            harness/tools/generate_pr80_velographx_nonroad_holdout.py \
+            harness/tools/run_pr80_velographx_nonroad_holdout.py \
+            harness/tools/run_pr65_velographx_head_to_head.py \
+            harness/tools/oracle_from_trace.cpp \
+            harness/benchmarks/velographx_direct.cpp \
+            > evidence/pr80/provenance/pr80-input-sha256.txt
+
+      - name: Generate preregistered fresh non-road graphs and traces
+        run: |
+          set -euo pipefail
+          python3 harness/tools/generate_pr80_velographx_nonroad_holdout.py \
+            --out "$PWD/evidence/pr80/generated" \
+            | tee evidence/pr80/generator.stdout.txt
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.load(open('evidence/pr80/generated/manifest.json'))
+          assert m['schema']=='ades-pr80-generated-manifest-v1'
+          assert m['cell_count']==24
+          d=m['design']
+          assert d['graph_seeds']==[8209,9103,10037]
+          assert d['workload_seeds']==[12007,13001]
+          assert d['vertices']==15000
+          assert d['attachments_per_new_vertex']==5
+          assert [x['name'] for x in d['source_families']]==['uniform','hot-pool-2','hot-pool-4','rotating-hot-4']
+          assert all(g['logical_undirected_edges']==74985 for g in m['graphs'])
+          assert all(g['directed_arcs']==149970 for g in m['graphs'])
+          for c in m['cells']:
+              name=c['family']['name']
+              reuse=c['source_reuse_fraction']
+              if name=='uniform': assert reuse==0.0
+              else: assert reuse>=0.80
+              assert c['logical_update_count']==12
+              assert c['raw_symmetric_arc_update_count']==24
+              assert c['logical_increase_count']==6
+              assert c['logical_decrease_count']==6
+          print('PR80 GENERATION IDENTITY PASS')
+          PY
+          sha256sum evidence/pr80/generated/graphs/*.gr.gz \
+            > evidence/pr80/provenance/generated-graph-sha256.txt
+          sha256sum evidence/pr80/generated/cells/*/trace.txt \
+            > evidence/pr80/provenance/generated-trace-sha256.txt
+
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake curl bzip2 zlib1g-dev time
+
+      - name: Fetch exact unmodified VeloGraphX and pinned Boost
+        run: |
+          set -euo pipefail
+          mkdir -p external
+          git clone --filter=blob:none --no-checkout https://github.com/sauravsingla/VeloGraphX.git external/velographx
+          git -C external/velographx fetch --depth=1 origin "$VELOGRAPHX_SHA"
+          git -C external/velographx checkout --detach "$VELOGRAPHX_SHA"
+          test "$(git -C external/velographx rev-parse HEAD)" = "$VELOGRAPHX_SHA"
+          test -z "$(git -C external/velographx status --porcelain)"
+          curl --fail --location --retry 4 --retry-all-errors \
+            https://archives.boost.io/release/1.92.0/source/boost_1_92_0.tar.bz2 \
+            --output boost_1_92_0.tar.bz2
+          echo "$BOOST_SHA256  boost_1_92_0.tar.bz2" | sha256sum --check --strict
+          tar -xjf boost_1_92_0.tar.bz2
+          sha256sum \
+            external/velographx/LICENSE \
+            external/velographx/include/velographx/incremental/weighted_sssp.hpp \
+            external/velographx/include/velographx/storage/weighted_dynamic_graph.hpp \
+            > evidence/pr80/provenance/velographx-upstream-sha256.txt
+
+      - name: Build frozen candidate, cross-oracle, and qualified VeloGraphX adapter
+        run: |
+          set -euo pipefail
+          cmake -S candidate -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2 --target ades_workload_v2 ades_bench
+          g++ -std=c++20 -O2 -DNDEBUG \
+            -I boost_1_92_0 -I candidate/include \
+            harness/tools/oracle_from_trace.cpp build/libades.a -lz \
+            -o oracle_from_trace
+          g++ -std=c++20 -O2 -DNDEBUG \
+            -I candidate/include \
+            candidate/benchmarks/ades_direct.cpp build/libades.a -lz \
+            -o ades_direct
+          g++ -std=c++20 -O2 -DNDEBUG -Wall -Wextra -pedantic \
+            -I external/velographx/include -I candidate/include \
+            harness/benchmarks/velographx_direct.cpp build/libades.a -lz \
+            -o velographx_direct
+          sha256sum oracle_from_trace ades_direct velographx_direct \
+            > evidence/pr80/provenance/binary-sha256.txt
+
+      - name: Execute preregistered 24-cell cross-product holdout
+        id: experiment
+        run: |
+          set +e
+          python3 harness/tools/run_pr80_velographx_nonroad_holdout.py \
+            --generated-root "$PWD/evidence/pr80/generated" \
+            --oracle-builder "$PWD/oracle_from_trace" \
+            --ades "$PWD/ades_direct" \
+            --velo "$PWD/velographx_direct" \
+            --pair-driver "$PWD/harness/tools/run_pr65_velographx_head_to_head.py" \
+            --out "$PWD/evidence/pr80/results" \
+            > evidence/pr80/experiment.stdout.txt \
+            2> evidence/pr80/experiment.stderr.txt
+          rc=$?
+          echo "$rc" > evidence/pr80/experiment-exit-code.txt
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          if [ -f evidence/pr80/results/holdout_summary.json ]; then
+            cat evidence/pr80/results/holdout_summary.json
+          fi
+          exit 0
+
+      - name: Enforce integrity while accepting support or falsification
+        run: |
+          set -euo pipefail
+          test "${{ steps.experiment.outputs.exit_code }}" = "0"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('evidence/pr80/results')
+          p=root/'holdout_summary.json'
+          if not p.exists(): raise SystemExit('missing PR80 holdout_summary.json')
+          d=json.load(open(p))
+          allowed={
+            'SUPPORTS_ADES_OVER_VELOGRAPHX_ON_PR80_NONROAD_ARBITRARY_SOURCE_SLICE',
+            'FALSIFIES_STRONG_PR80_VELOGRAPHX_NONROAD_HYPOTHESIS_ON_TESTED_SLICE',
+          }
+          assert d['schema']=='ades-pr80-velographx-nonroad-holdout-result-v1'
+          assert d['disposition'] in allowed
+          assert d['cell_count']==24
+          assert d['exactness_all_cells'] is True
+          assert d['state_budget_all_cells'] is True
+          assert d['persistent_state_budget_bytes']==67108864
+          if d['disposition'].startswith('SUPPORTS_'):
+              assert d['strong_preregistered_pass'] is True
+          else:
+              assert d['strong_preregistered_pass'] is False
+          cells=json.load(open(root/'cells.json'))
+          assert len(cells)==24
+          assert {c['graph_seed'] for c in cells}=={8209,9103,10037}
+          assert {c['workload_seed'] for c in cells}=={12007,13001}
+          assert {c['family'] for c in cells}=={'uniform','hot-pool-2','hot-pool-4','rotating-hot-4'}
+          assert all(c['exactness']=='PASS' for c in cells)
+          assert all(c['velo_peak_accounted_state_bytes']<=67108864 for c in cells)
+          assert all(c['ades_peak_accounted_state_bytes']<=67108864 for c in cells)
+          hot=[c for c in cells if c['family']!='uniform']
+          assert all(c['source_reuse_fraction']>=0.80 for c in hot)
+          assert sum(c['velo_cache_hits'] for c in hot)>0
+          oracle=list(root.glob('cells/*/oracle.stdout.txt'))
+          assert len(oracle)==24
+          assert all('agreement=PASS' in x.read_text() for x in oracle)
+          print('PR80 VALID COMPLETION:',d['disposition'])
+          print(json.dumps({
+            'aggregate_total': d['aggregate']['total'],
+            'aggregate_query_only': d['aggregate']['query_only'],
+            'loss_cells_total': d['aggregate']['loss_cells_total'],
+            'loss_cells_query_only': d['aggregate']['loss_cells_query_only'],
+            'minimum_total_cell_speedup': d['minimum_total_cell_speedup'],
+            'minimum_query_cell_speedup': d['minimum_query_cell_speedup'],
+          },indent=2,sort_keys=True))
+          PY
+
+      - name: Record R7 provenance
+        if: always()
+        env:
+          HARNESS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/pr80/provenance
+          {
+            echo "harness_sha=$HARNESS_SHA"
+            echo "frozen_ades_sha=$FROZEN_ADES_SHA"
+            echo "velographx_sha=$VELOGRAPHX_SHA"
+            echo "velo_adapter_blob=$(git -C harness hash-object benchmarks/velographx_direct.cpp)"
+            echo "pair_driver_blob=$(git -C harness hash-object tools/run_pr65_velographx_head_to_head.py)"
+            echo "state_budget_bytes=$STATE_BUDGET_BYTES"
+            echo "graph_seeds=8209,9103,10037"
+            echo "workload_seeds=12007,13001"
+            echo "contract_status=preregistered-before-pr80-timing"
+            echo "oracle_validation=ADES_fresh_Dijkstra_equals_Boost_Graph_1.92.0_Dijkstra_on_every_query"
+            echo "experiment_exit_code=${{ steps.experiment.outputs.exit_code }}"
+            echo "runner_os=${RUNNER_OS:-unknown}"
+            echo "runner_arch=${RUNNER_ARCH:-unknown}"
+            git -C external/velographx status --porcelain
+            python3 --version
+            g++ --version | head -1
+            cmake --version | head -1
+            uname -a
+            lscpu
+          } > evidence/pr80/provenance/environment.txt
+
+      - name: Upload complete PR80 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ades-pr80-velographx-nonroad-${{ github.event.pull_request.head.sha || github.sha }}
+          path: evidence/pr80/
+          if-no-files-found: error
+          retention-days: 90
