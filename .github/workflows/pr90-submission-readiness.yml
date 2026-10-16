@@ -114,6 +114,7 @@ jobs:
             ADES_MANUSCRIPT.md \
             EXPERIMENT_ENVIRONMENT.md \
             --citeproc \
+            --metadata=reference-section-title:References \
             --standalone \
             --embed-resources \
             --resource-path=. \
@@ -144,23 +145,19 @@ jobs:
           low = text.lower()
           compact = re.sub(r'\s+', ' ', low)
 
-          # No unresolved Pandoc-style citation syntax may survive rendering.
-          assert not re.search(r'\[@[A-Za-z0-9_:-]+', text)
-          assert '@ramalingam1996incremental' not in text
-          assert '@rai2026alsssp' not in text
+          assert not re.search(r'\[@[A-Za-z0-9_:-]+', text), 'unresolved Pandoc citation syntax'
+          assert '@ramalingam1996incremental' not in text, 'unresolved Ramalingam citation key'
+          assert '@rai2026alsssp' not in text, 'unresolved ALSSSP citation key'
 
-          # Core paper and appendix must both be present.
-          assert 'ades: exact adaptive source residency for online dynamic shortest paths under bounded state' in compact
-          assert 'experimental environment provenance' in compact
-          assert 'references' in compact
+          assert 'ades: exact adaptive source residency for online dynamic shortest paths under bounded state' in compact, 'paper title missing'
+          assert 'experimental environment provenance' in compact, 'environment appendix missing'
+          assert 'references' in compact, 'references heading missing'
 
-          # Central evidence values must survive typesetting.
           for value in ('5.112681', '5.059393', '15.561191', '3.897866', '157.677417', '30.199379'):
-              assert value in text, value
-          assert '24/24' in text
-          assert 'cf7cbc3ed7d9d37ad673a540485a1eee781d47fe' in text
+              assert value in text, f'central value missing: {value}'
+          assert '24/24' in text, '24/24 exact marker missing'
+          assert 'cf7cbc3ed7d9d37ad673a540485a1eee781d47fe' in text, 'frozen candidate missing'
 
-          # Critical claim boundaries must remain visible after rendering.
           for phrase in (
               'adapter-mediated',
               'not a requirement that both consume equal actual bytes',
@@ -169,21 +166,19 @@ jobs:
               'not an external independent replication',
               'not all executed on the same physical cpu model',
           ):
-              assert phrase in compact, phrase
-          assert 'population-level' in compact
-          assert 'universal or theoretical' in compact
+              assert phrase in compact, f'claim boundary missing: {phrase}'
+          assert 'population-level' in compact, 'population-inference boundary missing'
+          assert 'universal or theoretical' in compact, 'universal/theoretical boundary missing'
 
-          # Environment disclosure must survive rendering.
-          assert 'amd epyc 9v45' in compact
-          assert 'amd epyc 7763' in compact
-          assert '4 logical cpus' in compact
+          assert 'amd epyc 9v45' in compact, 'PR62 CPU provenance missing'
+          assert 'amd epyc 7763' in compact, 'PR66/80 CPU provenance missing'
+          assert '4 logical cpus' in compact, 'CPU allocation provenance missing'
 
-          # Bibliography identities should be rendered, not only source-resolved.
           for needle in (
               'ramalingam', 'frigioni', 'king', 'tinylfu',
               '10.1006/jagm.1996.0046', '10.5281/zenodo.19184398'
           ):
-              assert needle in compact, needle
+              assert needle in compact, f'bibliography identity missing: {needle}'
           print('PR90 RENDERED PDF TEXT AUDIT PASS')
           PY
 
