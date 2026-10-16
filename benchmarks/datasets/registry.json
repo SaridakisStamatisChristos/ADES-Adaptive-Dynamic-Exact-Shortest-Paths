@@ -1,9 +1,10 @@
 {
-  "schema": "ades-dataset-registry-v1",
-  "schema_version": 1,
+  "schema": "ades-dataset-registry-v2",
+  "schema_version": 2,
   "claims_addressed": ["C2", "C4", "C8", "C-SOTA"],
   "generality_rule": {
     "minimum_distinct_topology_classes": 5,
+    "minimum_external_real_topology_classes": 2,
     "require_non_road_topology": true,
     "metric_variants_do_not_count_as_distinct_topologies": true
   },
@@ -64,6 +65,106 @@
         "hash_verified": true,
         "parser_verified": true,
         "counts_verified_against_published_DIMACS_statistics": true
+      }
+    },
+    {
+      "id": "snap-email-eu-core-v1",
+      "display_name": "SNAP email-Eu-core directed communication topology",
+      "kind": "external-qualified-remote",
+      "topology_class": "email-communication",
+      "weight_semantics": "unweighted-source-topology; deterministic-positive-synthetic weights only in separately preregistered ADES experiments",
+      "format": "snap-directed-edge-list-gzip",
+      "directed_representation": true,
+      "vertices": 1005,
+      "arcs": 25571,
+      "source_data_rows": 25571,
+      "duplicate_rows": 0,
+      "self_loops": 642,
+      "source_artifact_sha256": "4b47acdb80197b085fe63c819c357ae488131ee904ed93d1b219a68b0f9e245f",
+      "canonical_topology_sha256": "f0cfcb0a49f8d12fa6a92061a93d07becd8808185494e9d73d4f6695809e9d5e",
+      "canonicalization": "lexicographically sorted unique directed endpoint pairs with the 642 source self-loops preserved; no direction change, reverse-arc insertion, or component extraction",
+      "source": {
+        "collection": "Stanford Large Network Dataset Collection (SNAP)",
+        "upstream": "email-Eu-core network from a large European research institution",
+        "url": "https://snap.stanford.edu/data/email-Eu-core.html",
+        "artifact_url": "https://snap.stanford.edu/data/email-Eu-core.txt.gz"
+      },
+      "license": {
+        "status": "SNAP-hosted third-party dataset; dataset-specific redistribution terms are not asserted by PR75; source attribution/citation required for scientific use",
+        "redistribution_review_required": true,
+        "external_third_party_data": true
+      },
+      "qualification": {
+        "scientific_use": "qualified",
+        "hash_verified": true,
+        "parser_verified": true,
+        "counts_verified_against_published_SNAP_statistics": true,
+        "representation_verified": true,
+        "evidence": {
+          "pr": 71,
+          "canonical_head": "0220153da9ab087d4ed6dc5d999554a3d5c662bf",
+          "canonical_run": 38841945651,
+          "canonical_artifact": 12021033601,
+          "canonical_artifact_sha256": "05702c8f939e3444e2ddcca267074454f306885ce1ec76dad54f172ac98531a8"
+        },
+        "performance_evidence": {
+          "pr": 72,
+          "canonical_head": "9a637606b5ad0b62915a963d5d63d35e1beff4c9",
+          "canonical_run": 38842301369,
+          "canonical_artifact": 12021399322,
+          "canonical_artifact_sha256": "4a310ee84ecba531e754f463801b5c992e33114830759dbec45c9a13299c9b49",
+          "claim_scope": "fixed-source dynamic SSSP with deterministic synthetic positive weights; no native email-weight claim"
+        }
+      }
+    },
+    {
+      "id": "snap-p2p-gnutella08-v1",
+      "display_name": "SNAP p2p-Gnutella08 directed peer-to-peer topology",
+      "kind": "external-qualified-remote",
+      "topology_class": "peer-to-peer",
+      "weight_semantics": "unweighted-source-topology; deterministic-positive-synthetic weights only in separately preregistered ADES experiments",
+      "format": "snap-directed-edge-list-gzip",
+      "directed_representation": true,
+      "vertices": 6301,
+      "arcs": 20777,
+      "source_data_rows": 20777,
+      "duplicate_rows": 0,
+      "self_loops": 0,
+      "source_artifact_sha256": "cb3019062be21e55b03f19a73e88edf34693bafb68ae581621cc7a037fa604a9",
+      "canonical_topology_sha256": "4554021f32967c69b68ccf59f9d85b83b66a6c0413b721112a10741858fdf845",
+      "canonicalization": "lexicographically sorted unique directed endpoint pairs; source has zero duplicate rows and zero self-loops; no direction change, reverse-arc insertion, or component extraction",
+      "source": {
+        "collection": "Stanford Large Network Dataset Collection (SNAP)",
+        "upstream": "Gnutella peer-to-peer network snapshot from August 8, 2002",
+        "url": "https://snap.stanford.edu/data/p2p-Gnutella08.html",
+        "artifact_url": "https://snap.stanford.edu/data/p2p-Gnutella08.txt.gz"
+      },
+      "license": {
+        "status": "SNAP-hosted third-party dataset; dataset-specific redistribution terms are not asserted by PR75; source attribution/citation required for scientific use",
+        "redistribution_review_required": true,
+        "external_third_party_data": true
+      },
+      "qualification": {
+        "scientific_use": "qualified",
+        "hash_verified": true,
+        "parser_verified": true,
+        "counts_verified_against_published_SNAP_statistics": true,
+        "representation_verified": true,
+        "evidence": {
+          "pr": 73,
+          "canonical_head": "fa6637b57bef6c8b56aaf1f9ac65bd7fc7a26645",
+          "canonical_run": 38842725427,
+          "canonical_artifact": 12021871969,
+          "canonical_artifact_sha256": "37f2e717cd66a6d8356bcc758463346269fd073e648ffcbadd19e6f3d45e3c49"
+        },
+        "performance_evidence": {
+          "pr": 74,
+          "canonical_head": "e470143b5d2410cea1ff840aedb5436156f99a96",
+          "canonical_run": 38843018312,
+          "canonical_artifact": 12022600551,
+          "canonical_artifact_sha256": "6c5bdfa201bb6a9068747cf9001b22ed38a7167f3ad858c5e09a4296795db06c",
+          "claim_scope": "fixed-source dynamic SSSP with deterministic synthetic positive weights; no native Gnutella-weight claim"
+        }
       }
     },
     {
