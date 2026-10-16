@@ -1,0 +1,104 @@
+name: ADES PR84 public evidence status repair
+
+on:
+  push:
+    branches: [pr84-public-evidence-status-repair]
+  pull_request:
+    paths:
+      - 'README.md'
+      - 'docs/PR84_PUBLIC_EVIDENCE_STATUS_REPAIR.md'
+      - '.github/workflows/pr84-public-evidence-status-repair.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  public-evidence-boundary:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact PR84 head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Enforce PR83-authorized README repair
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          text=Path('README.md').read_text()
+          low=text.lower()
+          assert 'scoped practical sota evidence' in low
+          assert 'publication contract v1.0' in low
+          assert 'novelty' in low and 'not established' in low
+          assert 'not a universal or theoretical sota claim' in low
+          assert 'boost.graph dijkstra recomputation' in low
+          assert 'velographx weighted sssp through the qualified arbitrary-source adapter' in low
+          assert 'adapter-mediated' in low
+          assert 'fixed-source' in low
+          assert 'common auditable persistent-state **cap/accounting contract**' in low
+          assert 'not a claim of equal actual memory use or equal process rss' in low
+          assert 'slice-level robustness' in low
+          assert 'not** population-level inference' in low or 'not population-level inference' in low
+          assert 'historical-cilk graphbolt' in low
+          assert 'networkit' in low and 'contextual' in low
+          assert 'pr81_scoped_practical_sota_decision.md' in low
+          assert 'pr82_velographx_registry_reconciliation.md' in low
+          assert 'pr83_adversarial_publication_audit.md' in low
+          stale='publication-grade evidence should rerun the complete matrix on one fixed commit across multiple independent workload seeds and longer traces'
+          assert stale not in low
+          # Prohibited claims may appear only as explicit unsupported examples.
+          assert 'world\'s fastest dynamic shortest-path algorithm' in low
+          assert 'is not supported' in low or 'are not supported' in low
+          print('PR84 README BOUNDARY PASS')
+          PY
+
+      - name: Preserve scientific evidence surfaces unchanged
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha || 'b4cff3a5c1220ea6922ac72c62986bd3544a7a75' }}"
+          git diff --name-only "$base" HEAD | tee /tmp/pr84-changed.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          changed=set(Path('/tmp/pr84-changed.txt').read_text().splitlines())
+          allowed={
+            'README.md',
+            'docs/PR84_PUBLIC_EVIDENCE_STATUS_REPAIR.md',
+            '.github/workflows/pr84-public-evidence-status-repair.yml',
+          }
+          extra=changed-allowed
+          if extra:
+              raise SystemExit(f'PR84 touched unauthorized surfaces: {sorted(extra)}')
+          print('PR84 DOCUMENTATION-ONLY DIFF PASS')
+          PY
+
+      - name: Verify canonical evidence still exists unchanged by reference
+        run: |
+          set -euo pipefail
+          test -f docs/PUBLICATION_CONTRACT.md
+          test -f docs/PR81_SCOPED_PRACTICAL_SOTA_DECISION.md
+          test -f docs/PR82_VELOGRAPHX_REGISTRY_RECONCILIATION.md
+          test -f docs/PR83_ADVERSARIAL_PUBLICATION_AUDIT.md
+          test -f evidence/pr81_scoped_sota_decision.json
+          python3 tools/validate_comparator_registry.py \
+            --registry benchmarks/comparators/registry.json \
+            --output /tmp/pr84-comparator-summary.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/pr84-comparator-summary.json'))
+          assert 'boost-graph-dijkstra-recompute' in d['direct_external_comparators']
+          assert 'velographx-weighted-sssp-adapter' in d['direct_external_comparators']
+          print('PR84 DIRECT COMPARATOR SET PASS')
+          PY
+
+      - name: Record hashes
+        run: |
+          sha256sum \
+            README.md \
+            docs/PR84_PUBLIC_EVIDENCE_STATUS_REPAIR.md \
+            docs/PUBLICATION_CONTRACT.md \
+            docs/PR81_SCOPED_PRACTICAL_SOTA_DECISION.md \
+            docs/PR82_VELOGRAPHX_REGISTRY_RECONCILIATION.md \
+            docs/PR83_ADVERSARIAL_PUBLICATION_AUDIT.md \
+            benchmarks/comparators/registry.json
