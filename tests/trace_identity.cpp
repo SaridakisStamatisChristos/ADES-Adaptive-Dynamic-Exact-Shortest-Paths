@@ -109,7 +109,7 @@ int main() {
   require(counts.decrease_count == 1, "wrong decrease count");
 
   const auto path =
-      std::filesystem::temp_directory_path() / "ades-pr42-trace-identity.trace";
+      std::filesystem::temp_directory_path() / "ades-trace-identity.trace";
   write_trace(path.string(), trace);
   const auto replay = read_trace(path.string());
   std::filesystem::remove(path);

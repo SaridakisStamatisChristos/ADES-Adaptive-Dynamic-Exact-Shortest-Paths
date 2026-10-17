@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the PR48 external-comparator qualification registry."""
+"""Validate the external-comparator qualification registry."""
 
 from __future__ import annotations
 
@@ -117,11 +117,11 @@ def main() -> int:
     if registry.get("contract_version") != "1.0":
         fail("comparator registry must bind publication contract 1.0")
     if registry.get("claim_ids") != ["C4", "C7", "C-SOTA"]:
-        fail("claim_ids must be exactly C4,C7,C-SOTA for PR48")
+        fail("claim_ids must be exactly C4,C7,C-SOTA for the frozen qualification contract")
     if set(registry.get("status_classes", {})) != STATUSES:
         fail("status_classes must define DIRECT/PENDING/CONTEXT/INELIGIBLE")
     if tuple(registry.get("hard_gates", [])) != REQUIRED_HARD_GATES:
-        fail("hard_gates do not match the frozen PR48 gate order")
+        fail("hard_gates do not match the frozen qualification gate order")
 
     comparators = registry.get("comparators")
     if not isinstance(comparators, list) or len(comparators) < 4:
@@ -190,9 +190,9 @@ def main() -> int:
     if not literature:
         fail("at least one literature-only dynamic shortest-path candidate must be reviewed")
     if not pending:
-        fail("PR48 must preserve at least one actionable external qualification candidate")
+        fail("the qualification contract must preserve at least one actionable external candidate")
     if not context:
-        fail("PR48 must demonstrate assumption segregation with at least one CONTEXT comparator")
+        fail("the qualification contract must demonstrate assumption segregation with at least one CONTEXT comparator")
 
     summary = {
         "schema": "ades-pr48-comparator-qualification-summary-v1",
@@ -206,7 +206,7 @@ def main() -> int:
         "pinned_external_implementations": pinned_implementations,
         "headline_sota_ready": bool(direct),
         "headline_sota_blocker": None if direct else (
-            "No external comparator has yet satisfied every PR48 DIRECT hard gate. "
+            "No external comparator has yet satisfied every DIRECT hard gate. "
             "C-SOTA therefore remains UNESTABLISHED; PENDING/CONTEXT methods may not be presented as direct wins."
         ),
         "direct_rule": "Every frozen hard gate must equal PASS; theory-only or contextual evidence is insufficient.",

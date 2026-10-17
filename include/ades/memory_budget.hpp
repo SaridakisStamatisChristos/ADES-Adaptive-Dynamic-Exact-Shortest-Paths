@@ -11,7 +11,7 @@
 
 namespace ades {
 
-// Publication persistent-state accounting model introduced by PR43.
+// Publication persistent-state accounting model, version 1.
 //
 // The budget is intentionally a logical algorithm-state budget, not RSS.
 // It includes semantic persistent state that differs between algorithms and
@@ -109,8 +109,8 @@ inline constexpr std::uint64_t ades_cooldown_entry_accounted_bytes() {
   return sizeof(std::uint32_t) + sizeof(std::uint64_t);
 }
 
-// PR50 ADES-v2 predictive-economic metadata. The accounting is logical: each
-// map entry includes its source key and semantic fields, while allocator/node
+// ADES-v2 predictive-economic metadata. The accounting is logical: each map
+// entry includes its source key and semantic fields, while allocator/node
 // overhead remains represented by RSS just like the older policies.
 inline constexpr std::uint64_t ades_economic_source_accounted_bytes() {
   return sizeof(std::uint32_t) + 2u * sizeof(std::uint64_t) + 3u * sizeof(double);

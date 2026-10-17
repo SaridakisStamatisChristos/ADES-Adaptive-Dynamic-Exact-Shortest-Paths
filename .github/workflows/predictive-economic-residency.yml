@@ -1,18 +1,18 @@
-name: ADES PR51 fast economic gate
+name: ADES predictive economic residency gate
 
 on:
   pull_request:
   push:
     branches:
-      - pr51-fast-cold-early-promotion
+      - main
   workflow_dispatch:
     inputs:
       queries:
-        description: Queries per trace for full PR51 benchmark
+        description: Queries per trace for the full benchmark
         required: false
-        default: "120"
+        default: "60"
       phase:
-        description: regression, holdout2, or both
+        description: development, holdout, or both
         required: false
         default: "both"
 
@@ -29,38 +29,38 @@ jobs:
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
       - name: Validate Python
-        run: python3 -m py_compile tools/run_pr51_fast.py
+        run: python3 -m py_compile tools/run_predictive_economic.py research/history/runners/predictive_economic_v2.py
       - name: Build and test
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j2
           ctest --test-dir build --output-on-failure
-      - name: Run PR51 structural smoke
+      - name: Run predictive-economic structural smoke
         env:
           GITHUB_SHA: ${{ github.sha }}
         run: |
-          python3 tools/run_pr51_fast.py \
-            --repo . --build build --output results/pr51-smoke \
+          python3 tools/run_predictive_economic.py \
+            --repo . --build build --output results/predictive-economic-smoke \
             --queries 12 --smoke
-          test -s results/pr51-smoke/measurements.csv
-          test -s results/pr51-smoke/summary.csv
-          test -s results/pr51-smoke/confidence.csv
-          test -s results/pr51-smoke/ANALYSIS.md
-          test -s results/pr51-smoke/decision.json
-          test -s results/pr51-smoke/manifest.json
-          test -s results/pr51-smoke/SHA256SUMS
+          test -s results/predictive-economic-smoke/measurements.csv
+          test -s results/predictive-economic-smoke/summary.csv
+          test -s results/predictive-economic-smoke/confidence.csv
+          test -s results/predictive-economic-smoke/ANALYSIS.md
+          test -s results/predictive-economic-smoke/decision.json
+          test -s results/predictive-economic-smoke/manifest.json
+          test -s results/predictive-economic-smoke/SHA256SUMS
       - name: Upload smoke evidence
         uses: actions/upload-artifact@v4
         with:
-          name: ades-pr51-fast-smoke
-          path: results/pr51-smoke
+          name: ades-predictive-economic-smoke
+          path: results/predictive-economic-smoke
           if-no-files-found: error
           retention-days: 30
 
   full:
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && contains(github.event.head_commit.message, '[pr51-full]'))
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[predictive-economic-full]'))
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
@@ -70,37 +70,37 @@ jobs:
       - name: Verify committed NY graph
         run: bash tools/verify_ny_dimacs.sh benchmarks/data
       - name: Validate Python
-        run: python3 -m py_compile tools/run_pr51_fast.py tools/generate_synthetic_graphs.py
+        run: python3 -m py_compile tools/run_predictive_economic.py research/history/runners/predictive_economic_v2.py tools/generate_synthetic_graphs.py
       - name: Build and test
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j2
           ctest --test-dir build --output-on-failure
-      - name: Run PR51 regression and fresh second holdout
+      - name: Run development and holdout benchmark
         env:
           GITHUB_SHA: ${{ github.sha }}
         run: |
           phase="${{ inputs.phase }}"
           queries="${{ inputs.queries }}"
           if [ -z "$phase" ]; then phase=both; fi
-          if [ -z "$queries" ]; then queries=120; fi
-          python3 tools/run_pr51_fast.py \
-            --repo . --build build --output results/pr51-fast \
+          if [ -z "$queries" ]; then queries=60; fi
+          python3 tools/run_predictive_economic.py \
+            --repo . --build build --output results/predictive-economic \
             --queries "$queries" --phase "$phase"
           python3 - <<'PY'
           import json
           from pathlib import Path
-          p = Path('results/pr51-fast')
+          p = Path('results/predictive-economic')
           decision = json.loads((p / 'decision.json').read_text())
-          assert 'regression_material_regressions' in decision
-          assert 'holdout2_material_regressions' in decision
+          assert 'development_material_regressions' in decision
+          assert 'holdout_material_regressions' in decision
           for name in ('measurements.csv','summary.csv','confidence.csv','ANALYSIS.md','manifest.json','SHA256SUMS'):
               assert (p / name).is_file() and (p / name).stat().st_size > 0, name
           PY
-      - name: Upload full PR51 evidence
+      - name: Upload full predictive-economic evidence
         uses: actions/upload-artifact@v4
         with:
-          name: ades-pr51-fast-economic-full
-          path: results/pr51-fast
+          name: ades-predictive-economic-full
+          path: results/predictive-economic
           if-no-files-found: error
           retention-days: 90

@@ -20,7 +20,7 @@ jobs:
           python3 tools/validate_comparator_registry.py \
             --registry benchmarks/comparators/registry.json \
             --output results/comparator-qualification/SUMMARY.json
-      - name: Verify PR48 current scientific status
+      - name: Verify current scientific status
         run: |
           python3 - <<'PY'
           import json
@@ -32,9 +32,9 @@ jobs:
           assert summary["context_external_comparators"]
           assert summary["pinned_external_implementations"]
           assert summary["headline_sota_ready"] == bool(summary["direct_external_comparators"])
-          # PR48 intentionally finds no fully qualified external comparator yet.
-          # A future promotion PR must update this acceptance assertion only after
-          # it supplies the adapter/oracle/memory/timing evidence required by DIRECT.
+          # The frozen qualification baseline intentionally has no fully qualified
+          # external comparator yet. Update this assertion only after supplying the
+          # adapter/oracle/memory/timing evidence required by DIRECT.
           assert summary["direct_external_comparators"] == []
           assert summary["headline_sota_ready"] is False
           assert summary["headline_sota_blocker"]
@@ -42,6 +42,6 @@ jobs:
       - name: Upload qualification evidence
         uses: actions/upload-artifact@v4
         with:
-          name: ades-comparator-qualification-pr48
+          name: ades-comparator-qualification
           path: results/comparator-qualification
           if-no-files-found: error

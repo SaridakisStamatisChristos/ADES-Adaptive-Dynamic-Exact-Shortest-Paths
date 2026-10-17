@@ -1,8 +1,8 @@
 # External comparator registry
 
-`registry.json` is the machine-readable PR48 qualification ledger for external shortest-path methods.
+`registry.json` is the machine-readable qualification ledger for external shortest-path methods.
 
-The authoritative eligibility rules are in `docs/COMPARATOR_ELIGIBILITY.md`.
+The authoritative frozen eligibility rules are archived in `research/publication/comparator-eligibility-v1.md`.
 
 ## Status meaning
 
@@ -27,4 +27,4 @@ The validator intentionally permits zero DIRECT external comparators, but then e
 headline_sota_ready = false
 ```
 
-That state blocks any claim that PR48 itself established external-comparator SOTA readiness.
+That state blocks any claim that the current registry establishes external-comparator SOTA readiness.

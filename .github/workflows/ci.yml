@@ -19,7 +19,12 @@ jobs:
             tools/generate_synthetic_graphs.py \
             tools/validate_dataset_registry.py \
             tools/validate_comparator_registry.py \
-            tools/run_publication_pilot.py
+            tools/run_publication_pilot.py \
+            tools/run_predictive_economic.py \
+            tools/run_fast_economic.py \
+            research/history/runners/publication_viability_pilot_v1.py \
+            research/history/runners/predictive_economic_v2.py \
+            research/history/runners/fast_economic_v3.py
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build build -j2
       - run: ctest --test-dir build --output-on-failure

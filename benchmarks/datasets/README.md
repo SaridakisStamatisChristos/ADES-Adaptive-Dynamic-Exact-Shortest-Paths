@@ -1,6 +1,6 @@
 # Dataset registry
 
-`registry.json` is the canonical publication dataset inventory introduced by PR47.
+`registry.json` is the canonical publication dataset inventory for ADES research experiments.
 
 It separates:
 
@@ -20,4 +20,4 @@ python3 tools/validate_dataset_registry.py \
 
 A publication campaign making a general-graph claim must use at least five distinct registered topology classes and at least one non-road class. Two weight functions on the same topology do not satisfy that diversity rule.
 
-See `docs/MULTIGRAPH_DATASET_REGISTRY_PR47.md` for the frozen PR47 contract.
+See `research/history/dataset-registry-v1.md` for the frozen registry contract and its historical provenance.

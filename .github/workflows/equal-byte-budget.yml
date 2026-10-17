@@ -41,7 +41,7 @@ jobs:
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j2
           ctest --test-dir build --output-on-failure
-      - name: PR43 equal-byte smoke
+      - name: Equal-byte smoke
         if: github.event_name == 'pull_request'
         run: |
           python3 tools/equal_byte_crossover.py \

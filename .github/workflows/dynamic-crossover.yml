@@ -6,7 +6,7 @@ on:
       - 'tools/memory_crossover.py'
       - 'tools/analyze_crossover.py'
       - '.github/workflows/dynamic-crossover.yml'
-      - 'docs/DYNAMIC_CROSSOVER_PR39.md'
+      - 'research/history/dynamic-crossover.md'
   workflow_dispatch:
     inputs:
       queries:

@@ -39,7 +39,7 @@ enum class PerturbationMagnitude : std::uint8_t {
 
 struct WorkloadConfig {
   std::size_t query_count = 1000;
-  // Frozen PR46 values: 0 (static), 2, 5, 10, 50, 100 queries/update.
+  // Frozen workload-generator v2 values: 0 (static), 2, 5, 10, 50, 100 queries/update.
   std::size_t update_interval = 10;
   SourceFamily source_family = SourceFamily::HotPool;
   std::size_t hot_sources = 4;

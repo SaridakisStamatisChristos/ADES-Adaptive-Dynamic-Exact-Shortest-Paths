@@ -97,7 +97,7 @@ jobs:
           assert rates == {0, 2, 5, 10, 50, 100}
 
           summary = {
-              "schema": "ades-pr46-workload-v2-gate",
+              "schema": "ades-workload-v2-gate-v1",
               "status": "PASS",
               "claim_ids": ["C2", "C8"],
               "graph_sha256": graph_sha,
@@ -112,6 +112,6 @@ jobs:
       - name: Upload workload evidence
         uses: actions/upload-artifact@v4
         with:
-          name: ades-workload-generator-v2-pr46
+          name: ades-workload-generator-v2
           path: results/workload-v2
           if-no-files-found: error

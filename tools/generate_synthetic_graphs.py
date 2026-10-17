@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the deterministic non-road graphs pinned by PR47.
+"""Generate deterministic non-road graphs pinned by the dataset registry.
 
 The output is canonical uncompressed DIMACS shortest-path text.  zlib's gzopen()
 reads these files transparently, so ADES can consume them without introducing

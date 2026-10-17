@@ -25,7 +25,7 @@ for path_str in glob.glob("results/*.csv"):
         rows = list(reader)
 
     if "baseline" in reader.fieldnames:
-        # PR42 publication runs use trace_sha256. Retain trace_hash support only
+        # Current publication runs use trace_sha256. Retain trace_hash support only
         # so previously archived engineering evidence remains readable.
         if "trace_sha256" in reader.fieldnames:
             trace_field = "trace_sha256"
@@ -50,7 +50,7 @@ for path_str in glob.glob("results/*.csv"):
         present_counts = [field for field in count_fields if field in reader.fieldnames]
         if present_counts and len(present_counts) != len(count_fields):
             missing_counts = sorted(set(count_fields).difference(reader.fieldnames))
-            raise SystemExit(f"incomplete PR42 trace counts in {path}: {missing_counts}")
+            raise SystemExit(f"incomplete canonical trace counts in {path}: {missing_counts}")
         if present_counts:
             by_counts = defaultdict(set)
             for row in rows:
