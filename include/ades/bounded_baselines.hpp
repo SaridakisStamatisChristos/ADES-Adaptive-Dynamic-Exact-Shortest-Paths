@@ -12,7 +12,7 @@
 namespace ades {
 // Independent, deterministic LRU comparator; original AlwaysResident is unchanged.
 // Capacity bounds resident source states. When byte_budget is nonzero, the
-// common PR43 logical persistent-state budget is enforced as an additional hard
+// common logical persistent-state budget is enforced as an additional hard
 // limit.
 class BoundedResident {
  struct Entry { SSSPState state; std::list<std::uint32_t>::iterator recency; };

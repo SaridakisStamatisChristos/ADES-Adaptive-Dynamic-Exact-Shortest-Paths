@@ -3,8 +3,8 @@
 
 namespace ades {
 
-// Publication telemetry schema introduced by PR44. Any semantic change to a
-// timing field requires a schema-version bump rather than silent reuse.
+// Publication telemetry schema version 2. Any semantic change to a timing field
+// requires a schema-version bump rather than silent reuse.
 inline constexpr std::uint32_t kPublicationTelemetrySchemaVersion = 2;
 
 struct TimingStats {

@@ -74,7 +74,7 @@
         "No ADES trace-replay adapter exists.",
         "Mixed increase/decrease directed semantics have not been independently validated under the frozen workload model.",
         "No fair arbitrary-source construction/eviction policy has been integrated.",
-        "No PR43-compatible persistent-state byte enforcement exists."
+        "No compatible persistent-state byte enforcement exists."
       ]
     },
     {
@@ -91,7 +91,7 @@
         "source_model": "single source",
         "query_output": "single-source shortest-path state",
         "update_api": "paper covers heterogeneous graph modifications including edge-length changes",
-        "notes": "Core theory is highly relevant, but PR48 has no pinned executable implementation suitable for matched empirical qualification."
+        "notes": "Core theory is highly relevant, but the current qualification ledger has no pinned executable implementation suitable for matched empirical qualification."
       },
       "gates": {
         "exact_answers": "PASS_THEORY", "online_operations": "PASS_THEORY", "directed_graphs": "PASS_THEORY", "nonnegative_weighted_graphs": "PASS_THEORY",
@@ -99,7 +99,7 @@
         "matched_trace_adapter": "MISSING", "independent_oracle_validation": "MISSING", "persistent_memory_budget_enforceable": "MISSING", "persistent_memory_accounting_auditable": "MISSING",
         "preprocessing_semantics_declared": "PASS_THEORY", "timing_boundary_declared": "MISSING", "implementation_pinned": "FAIL", "license_compatible_for_reproduction": "UNKNOWN"
       },
-      "blockers": ["No pinned executable implementation is qualified.", "No matched-trace/oracle evidence exists.", "No PR43-compatible memory-budget integration exists."]
+      "blockers": ["No pinned executable implementation is qualified.", "No matched-trace/oracle evidence exists.", "No compatible memory-budget integration exists."]
     },
     {
       "id": "frigioni-marchetti-spaccamela-nanni",

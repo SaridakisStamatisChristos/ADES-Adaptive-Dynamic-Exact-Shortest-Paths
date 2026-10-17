@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate PR47 dataset provenance, hashes, counts, and topology diversity."""
+"""Validate dataset provenance, hashes, counts, and topology diversity."""
 
 from __future__ import annotations
 
