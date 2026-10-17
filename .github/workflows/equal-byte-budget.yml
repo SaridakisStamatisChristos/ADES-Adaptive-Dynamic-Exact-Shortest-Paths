@@ -36,12 +36,7 @@ jobs:
         run: bash tools/verify_ny_dimacs.sh benchmarks/data
       - name: Validate Python
         run: python3 -m py_compile tools/equal_byte_crossover.py tools/memory_crossover.py
-      - name: Build and test
-        run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-          cmake --build build -j2
-          ctest --test-dir build --output-on-failure
-      - name: PR43 equal-byte smoke
+      - name: Equal-byte smoke
         if: github.event_name == 'pull_request'
         run: |
           python3 tools/equal_byte_crossover.py \

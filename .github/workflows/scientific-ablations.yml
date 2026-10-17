@@ -40,6 +40,6 @@ jobs:
       - name: Upload ablation evidence
         uses: actions/upload-artifact@v4
         with:
-          name: ades-scientific-ablations-pr45
+          name: ades-scientific-ablations
           path: results/scientific-ablations
           if-no-files-found: error
