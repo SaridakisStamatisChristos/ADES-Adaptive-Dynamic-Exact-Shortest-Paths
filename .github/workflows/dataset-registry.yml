@@ -74,7 +74,7 @@ jobs:
       - name: Upload registry evidence
         uses: actions/upload-artifact@v4
         with:
-          name: ades-dataset-registry-pr47
+          name: ades-dataset-registry
           path: |
             results/dataset-registry/SUMMARY.json
             results/dataset-registry/SHA256SUMS

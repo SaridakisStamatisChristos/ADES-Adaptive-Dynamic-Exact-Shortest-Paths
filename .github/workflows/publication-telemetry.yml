@@ -73,6 +73,6 @@ jobs:
       - name: Upload telemetry evidence
         uses: actions/upload-artifact@v4
         with:
-          name: ades-publication-telemetry-pr44
+          name: ades-publication-telemetry
           path: results/publication-telemetry
           if-no-files-found: error

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate one six-profile PR45 scientific-ablation cell and summarize effects."""
+"""Validate one six-profile scientific-ablation cell and summarize effects."""
 
 import argparse
 import json
@@ -36,7 +36,7 @@ def main():
         row = parse_phase_line(line)
         validate_v2_reconciliation(row)
         if row["schema_version"] != "2":
-            raise SystemExit("PR45 requires schema_version=2")
+            raise SystemExit("scientific ablations require schema_version=2")
         rows.append(row)
 
     by_name = {row["baseline"]: row for row in rows}
